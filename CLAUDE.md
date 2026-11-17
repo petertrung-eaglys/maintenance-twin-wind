@@ -7,7 +7,7 @@ Guidance for Claude Code when working in this repository.
 `docs/spec.md` is the authoritative specification. Work through its §7
 milestones in order; §11 logs every milestone and change. `README.md` holds
 results, limitations and "Deviations from spec". Read both before changing
-behaviour. Done so far: §7.1 (scaffold).
+behaviour. Done so far: §7.1 (scaffold), §7.2 (download).
 
 ## Package management: uv only
 
@@ -19,9 +19,10 @@ behaviour. Done so far: §7.1 (scaffold).
 ## Commands
 
 ```
-make setup   # uv sync
-make test    # uv run pytest
-make lint    # uv run ruff check .
+make setup     # uv sync
+make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
+make test      # uv run pytest
+make lint      # uv run ruff check .
 ```
 
 Scripts run standalone as `uv run python -m src.<name>`; each gets a
@@ -33,6 +34,9 @@ Makefile target in its milestone.
   `scada_archives`, `scada_dirs` (per farm, shared folders listed once).
   `config.yaml` holds every path, URL, MD5, column name and threshold; no
   hard-coded values in scripts.
+- `src/download.py`: `download_farm` per farm: MD5-checked `.part`
+  streaming (skips valid files), unzip each archive into its `extract_to`
+  folder unless all its members already exist there.
 
 ## Rules (spec §8)
 
@@ -53,3 +57,6 @@ Makefile target in its milestone.
 - Kelmarsh 2023/2024 exports repeat the year many times: keep the most
   complete row per timestamp, never "keep first".
 - Kelmarsh mapping lists `Power` in kWh; `Power (kW)` is 10-minute mean power.
+- Penmanshiel file names zero-pad turbine numbers (`Penmanshiel_01`);
+  Kelmarsh does not (`Kelmarsh_1`). Penmanshiel 2023 WT01–10 has four
+  period files per turbine; 2024 files are ~3.8 GB each.

@@ -611,3 +611,18 @@ and the Kelmarsh repo tag the code was derived from.
   match each farm's Zenodo record, scada folders match `years`).
 - `Makefile` (`setup`, `test`, `lint`), `README.md`, `CLAUDE.md`.
   Pipeline targets and dependencies arrive with their milestones.
+
+### Milestone 7.2: download (2026-11-18)
+
+- `src/download.py` adapted from `v1.0-kelmarsh`: `download_farm` fetches
+  one farm into `data/raw/<farm>/` (MD5 check, skip, `.part` streaming)
+  and unzips each archive into its `extract_to` folder, several archives
+  sharing one folder. `make download` target.
+- Tests: helpers plus a synthetic two-archive farm (shared folder filled,
+  re-run fetches and extracts nothing).
+- Kelmarsh raw files hard-linked from the Kelmarsh repo; Penmanshiel
+  downloaded (22 files). Acceptance met: re-run downloads and extracts
+  nothing; `scada_2016`–`scada_2024` exist for both farms.
+- Penmanshiel layout findings (zero-padded turbine numbers, 2023 period
+  files, large 2024 files, ~62 GB unzipped) recorded in the README
+  deviations.
