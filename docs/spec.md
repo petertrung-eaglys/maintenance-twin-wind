@@ -597,3 +597,17 @@ and the Kelmarsh repo tag the code was derived from.
   the planning discussion: maintenance-twin goal, hybrid physics-ML models,
   two farms, train 2016–2021 / test 2022–2024, federated learning as future
   work.
+
+### Milestone 7.1: scaffold (2026-11-17)
+
+- `config.yaml` with both farms (codes `KLM`/`PEN`, dataset metadata, all
+  11 + 22 downloads with MD5 and `extract_to`), core signals, years and the
+  train/test split. Penmanshiel archives of one year share a `scada_<year>`
+  folder.
+- `src/config.py`: `load_config`, `farm_names`, `farm_raw_dir`,
+  `scada_archives`, `scada_dirs` (de-duplicated, config order), adapted
+  from `v1.0-kelmarsh`.
+- Tests for the helpers (synthetic config) and the shipped config (URLs
+  match each farm's Zenodo record, scada folders match `years`).
+- `Makefile` (`setup`, `test`, `lint`), `README.md`, `CLAUDE.md`.
+  Pipeline targets and dependencies arrive with their milestones.

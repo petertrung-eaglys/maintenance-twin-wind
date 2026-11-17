@@ -1,0 +1,173 @@
+# Calendar years kept by load_scada.py (Kelmarsh 2016 starts 15 April:
+# commissioning)
+years: [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+paths:
+  raw: data/raw                 # one folder per farm: data/raw/<farm>/
+  processed: data/processed     # one folder per farm: data/processed/<farm>/
+  ontology: ontology/wind_twin.ttl
+  models: models
+farms:
+  kelmarsh:
+    code: KLM                   # prefix for farm-scoped ids: KLM_T01
+    scada_name: Kelmarsh        # farm name in the SCADA file names
+    dataset:
+      title: "Kelmarsh wind farm data"
+      doi: "10.5281/zenodo.16807551"
+      publisher: "Cubico Sustainable Investments Ltd"
+      license: "CC-BY-4.0"
+    # SCADA archives carry extract_to: the folder (under data/raw/<farm>/)
+    # they are unzipped into
+    downloads:
+      - name: Kelmarsh_WT_static.csv
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_WT_static.csv?download=1
+        md5: af3a038f0f7fddfc1608ad0bfc8cf5ba
+      - name: Kelmarsh_WT_dataSignalMapping.csv
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_WT_dataSignalMapping.csv?download=1
+        md5: ca8fe399ab15ae7111d3214c632efd36
+      - name: Kelmarsh_SCADA_2016_3082.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2016_3082.zip?download=1
+        md5: ca8efbb6dbcfae3516583937eb5b5402
+        extract_to: scada_2016
+      - name: Kelmarsh_SCADA_2017_3083.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2017_3083.zip?download=1
+        md5: c78263ee52ee0e48e2cb4bbaa1ba211a
+        extract_to: scada_2017
+      - name: Kelmarsh_SCADA_2018_3084.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2018_3084.zip?download=1
+        md5: 972e5280172216a5fe76dcab19c741b0
+        extract_to: scada_2018
+      - name: Kelmarsh_SCADA_2019_3085.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2019_3085.zip?download=1
+        md5: 14348a1572b722e1be10e53cd145c39a
+        extract_to: scada_2019
+      - name: Kelmarsh_SCADA_2020_3086.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2020_3086.zip?download=1
+        md5: e189e02da98f32e74acc72e8559ef0db
+        extract_to: scada_2020
+      - name: Kelmarsh_SCADA_2021_4456.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2021_4456.zip?download=1
+        md5: 4e0ef3d65f067fd3d8f3d30e79ab01ae
+        extract_to: scada_2021
+      - name: Kelmarsh_SCADA_2022_4457.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2022_4457.zip?download=1
+        md5: b695d2b21cd5a236b2e690e0a43df5ab
+        extract_to: scada_2022
+      - name: Kelmarsh_SCADA_2023_5961.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2023_5961.zip?download=1
+        md5: 685d9589347d1866f6f2cfe45b9af4f4
+        extract_to: scada_2023
+      - name: Kelmarsh_SCADA_2024_5962.zip
+        url: https://zenodo.org/records/16807551/files/Kelmarsh_SCADA_2024_5962.zip?download=1
+        md5: e9e3318f5b393d8596ff1801f8da0414
+        extract_to: scada_2024
+  penmanshiel:
+    code: PEN
+    scada_name: Penmanshiel
+    dataset:
+      title: "Penmanshiel wind farm data"
+      doi: "10.5281/zenodo.16807304"
+      publisher: "Cubico Sustainable Investments Ltd"
+      license: "CC-BY-4.0"
+    # SCADA zips are split by turbine group (WT01-10, WT11-15); all zips of a
+    # year share one extract_to folder. 2023 WT01-10 has no January archive,
+    # 2024 has WT11-15 only.
+    downloads:
+      - name: Penmanshiel_WT_static.csv
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_WT_static.csv?download=1
+        md5: c4cd4191234c1a67a391fe5d2978256b
+      - name: Penmanshiel_WT_dataSignalMapping.xlsx
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_WT_dataSignalMapping.xlsx?download=1
+        md5: 2eae1b84a014619268a6e4f53e6b1c91
+      - name: Penmanshiel_SCADA_2016_WT01-10_3107.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2016_WT01-10_3107.zip?download=1
+        md5: 3819e1b2168b84da195b64e1e9d78b03
+        extract_to: scada_2016
+      - name: Penmanshiel_SCADA_2016_WT11-15_3107.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2016_WT11-15_3107.zip?download=1
+        md5: 92c30453d43a38e985af3e2e305eedd4
+        extract_to: scada_2016
+      - name: Penmanshiel_SCADA_2017_WT01-10_3114.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2017_WT01-10_3114.zip?download=1
+        md5: c8279e34a5e33d688e2219aa9abab74e
+        extract_to: scada_2017
+      - name: Penmanshiel_SCADA_2017_WT11-15_3115.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2017_WT11-15_3115.zip?download=1
+        md5: d41874e3d195e88506949492b5758cf6
+        extract_to: scada_2017
+      - name: Penmanshiel_SCADA_2018_WT01-10_3113.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2018_WT01-10_3113.zip?download=1
+        md5: 6389e5c4ea59d6565f6712db43a504ce
+        extract_to: scada_2018
+      - name: Penmanshiel_SCADA_2018_WT11-15_3116.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2018_WT11-15_3116.zip?download=1
+        md5: 7c40dc00df6d6301427213e15170b927
+        extract_to: scada_2018
+      - name: Penmanshiel_SCADA_2019_WT01-10_3112.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2019_WT01-10_3112.zip?download=1
+        md5: 78389603cb4ae20a6a9b878f5a84bc7b
+        extract_to: scada_2019
+      - name: Penmanshiel_SCADA_2019_WT11-15_3117.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2019_WT11-15_3117.zip?download=1
+        md5: 92747a976716c5f35d9ee6462958fd7a
+        extract_to: scada_2019
+      - name: Penmanshiel_SCADA_2020_WT01-10_3109.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2020_WT01-10_3109.zip?download=1
+        md5: 46f679f2e4ab3d69c04b31c8dc625106
+        extract_to: scada_2020
+      - name: Penmanshiel_SCADA_2020_WT11-15_3118.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2020_WT11-15_3118.zip?download=1
+        md5: c73323f21451c08247dbdb5d1a1434a9
+        extract_to: scada_2020
+      - name: Penmanshiel_SCADA_2021_WT01-10_4460.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2021_WT01-10_4460.zip?download=1
+        md5: 7a0839cf3cd5e7044d6ab814fef3c43f
+        extract_to: scada_2021
+      - name: Penmanshiel_SCADA_2021_WT11-15_4461.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2021_WT11-15_4461.zip?download=1
+        md5: f5804b90089ce4d50dc5117fda6f675c
+        extract_to: scada_2021
+      - name: Penmanshiel_SCADA_2022_WT01-10_4462.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2022_WT01-10_4462.zip?download=1
+        md5: 91351469cdeb3ca95be1a0414dcfec8f
+        extract_to: scada_2022
+      - name: Penmanshiel_SCADA_2022_WT11-15_4463.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2022_WT11-15_4463.zip?download=1
+        md5: 5f4743133a9cf65ad33de139b43f96b4
+        extract_to: scada_2022
+      - name: Penmanshiel_SCADA_2023_02_WT_01-10_5981.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2023_02_WT_01-10_5981.zip?download=1
+        md5: 05ac6e90b516fa30db05dfe6361099a7
+        extract_to: scada_2023
+      - name: Penmanshiel_SCADA_2023_03_WT_01-10_5982.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2023_03_WT_01-10_5982.zip?download=1
+        md5: 6fae49a3603dd2a503126e5e518eaf55
+        extract_to: scada_2023
+      - name: Penmanshiel_SCADA_2023_Q2_WT_01-10_5977.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2023_Q2_WT_01-10_5977.zip?download=1
+        md5: 7ed1d095183469e399054695b8c4fb5e
+        extract_to: scada_2023
+      - name: Penmanshiel_SCADA_2023_Q3 Q4_WT_01-10_5973.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2023_Q3%20Q4_WT_01-10_5973.zip?download=1
+        md5: f201240d4072dd4a5a8492725eb49787
+        extract_to: scada_2023
+      - name: Penmanshiel_SCADA_2023_WT_11-15_5964.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2023_WT_11-15_5964.zip?download=1
+        md5: 813ad4635cf50b9d96b253ee53175086
+        extract_to: scada_2023
+      - name: Penmanshiel_SCADA_2024_WT_11-15_5966.zip
+        url: https://zenodo.org/records/16807304/files/Penmanshiel_SCADA_2024_WT_11-15_5966.zip?download=1
+        md5: e0a700cad1d45f4130272feaef244b12
+        extract_to: scada_2024
+scada:
+  timestamp_column: "Date and time"   # timestamps are UTC (file metadata)
+signals:
+  # Confirmed for Kelmarsh 2016-2024; Penmanshiel pending inspect_data.py
+  wind_speed: "Wind speed (m/s)"
+  power: "Power (kW)"
+  wind_direction: "Wind direction (°)"
+  nacelle_direction: "Nacelle position (°)"
+  ambient_temp: "Ambient temperature (converter) (°C)"
+  pitch: "Blade angle (pitch position) A (°)"
+  rotor_speed: "Rotor speed (RPM)"
+train_test_split:
+  train_end: "2021-12-31 23:50"   # train 2016-2021, test 2022-2024
