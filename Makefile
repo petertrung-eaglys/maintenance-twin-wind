@@ -17,11 +17,16 @@ data:
 ontology:
 	uv run python -m src.graph.build_ontology
 
+# Training runs at low CPU priority (nice) so the desktop stays usable;
+# threads are capped by compute.threads in config.yaml.
+NICE = nice -n 10
+
 train:
-	uv run python -m src.models.power_baseline
-	uv run python -m src.models.physics_power
-	uv run python -m src.models.pitch
-	uv run python -m src.models.yaw
+	$(NICE) uv run python -m src.models.power_baseline
+	$(NICE) uv run python -m src.models.physics_power
+	$(NICE) uv run python -m src.models.pitch
+	$(NICE) uv run python -m src.models.yaw
+	$(NICE) uv run python -m src.models.thermal.train
 
 test:
 	uv run pytest

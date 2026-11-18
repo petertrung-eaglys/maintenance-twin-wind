@@ -37,6 +37,7 @@ from src.models.modelling import (
     turbine_paths,
 )
 from src.models.physics_power import normalised_wind_speed
+from src.storage import write_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ def train_farm(
         entries |= entry
         windows.append(turbine_windows)
     out = farm_processed_dir(config, farm) / "yaw_offsets.parquet"
-    pd.concat(windows, ignore_index=True).to_parquet(out, index=False)
+    write_parquet(pd.concat(windows, ignore_index=True), out)
     logger.info("Wrote %s", out)
     return entries
 

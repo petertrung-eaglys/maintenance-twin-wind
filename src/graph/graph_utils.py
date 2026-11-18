@@ -230,10 +230,17 @@ def fault_event_iri(farm_code: str, turbine_id: str, number: int) -> URIRef:
 
 
 def model_iri(
-    model_class: str, farm_code: str, turbine_id: str, variant: str
+    model_class: str,
+    farm_code: str,
+    turbine_id: str,
+    variant: str,
+    qualifier: str | None = None,
 ) -> URIRef:
-    """IRI of a model, e.g. kt:PowerModel_KLM_T01_baseline."""
-    return KT[f"{model_class}_{farm_code}_{turbine_id}_{variant}"]
+    """IRI of a model, e.g. kt:PowerModel_KLM_T01_baseline. The qualifier
+    separates models of one turbine and variant with different targets, e.g.
+    kt:ThermalModel_KLM_T01_gear_oil_temp_hybrid."""
+    parts = [model_class, farm_code, turbine_id, qualifier, variant]
+    return KT["_".join(p for p in parts if p is not None)]
 
 
 def local_name(iri: str) -> str:
@@ -394,13 +401,16 @@ def add_model(
     metrics: dict[str, float],
     generated_at: datetime,
     model_file: str | None = None,
+    qualifier: str | None = None,
 ) -> URIRef:
     """Add (or replace) a trained model node with its inputs and metrics."""
-    model = model_iri(model_class, farm_code, turbine_id, variant)
+    model = model_iri(model_class, farm_code, turbine_id, variant, qualifier)
     g.remove((model, None, None))
     g.add((model, RDF.type, KT[model_class]))
     g.add((model, RDF.type, PROV.Entity))
-    label = f"{model_class} {variant} {farm_code} {turbine_id}"
+    label = " ".join(
+        p for p in (model_class, qualifier, variant, farm_code, turbine_id) if p
+    )
     g.add((model, RDFS.label, Literal(label)))
     g.add((model, KT.modelOf, component_iri(farm_code, turbine_id, component)))
     g.add((model, KT.modelVariant, Literal(variant)))

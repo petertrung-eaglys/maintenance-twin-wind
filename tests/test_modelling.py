@@ -105,6 +105,16 @@ def test_model_id_of_uses_class_farm_turbine_and_variant() -> None:
     assert model_id_of(spec, "PEN", "T08") == "ThermalModel_PEN_T08_pinn"
 
 
+def test_model_id_of_includes_the_spec_qualifier() -> None:
+    spec = {
+        "model_class": "ThermalModel",
+        "variant": "pinn",
+        "qualifier": "stator_temp",
+    }
+
+    assert model_id_of(spec, "PEN", "T08") == "ThermalModel_PEN_T08_stator_temp_pinn"
+
+
 def test_with_turbine_specs_adds_constant_columns() -> None:
     spec = pd.Series({"rotor_diameter_m": 82.0, "rated_power_kw": 2050.0})
 

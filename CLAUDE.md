@@ -10,7 +10,8 @@ results, limitations and "Deviations from spec". Read both before changing
 behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (inspection; decisions in the README "Data inspection decisions"), §7.4
 (load, events, clean), §7.5 (ontology), §7.6–7.7 (modelling conventions,
-LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw).
+LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw),
+§7.9 (thermal models: physics, baseline, hybrid, PINN).
 
 ## Package management: uv only
 
@@ -27,13 +28,18 @@ make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
 make inspect   # raw structure, column coverage, events (~1 min)
 make data      # load_scada -> events -> clean (~9 min, order matters)
 make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
-make train     # all model variants (so far: power, pitch, yaw)
+make train     # power, pitch, yaw (~2 min), thermal (~15 min); nice'd
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
 
 Scripts run standalone as `uv run python -m src.<package>.<name>`; each
-gets a Makefile target in its milestone.
+gets a Makefile target in its milestone. Thermal for selected temperatures
+only: `uv run python -m src.models.thermal.train --targets <target> ...`.
+
+Long runs on this workstation (it has reset itself during training): warn
+the user first, launch detached (`setsid nohup ... > log 2>&1 &`) so they
+survive a session disconnect, and keep `compute.threads` and `nice`.
 
 ## Module map
 
@@ -41,6 +47,8 @@ gets a Makefile target in its milestone.
 `graph/` (the RDF graph), `models/` (normal-behaviour models). Tests stay
 flat in `tests/` (`test_<module>.py`).
 
+- `src/storage.py`: `write_parquet` (atomic: temp file, fsync, rename).
+  Use it for every Parquet write; a reset once left a 0-byte file.
 - `src/config.py`: `load_config`, `farm_names`, `farm_raw_dir`,
   `farm_processed_dir`, `scada_archives`, `scada_dirs` (per farm, shared
   folders listed once).
@@ -76,7 +84,8 @@ flat in `tests/` (`test_<module>.py`).
   `fault_event_iri`, `source_iri`), SPARQL `*_QUERY` constants and `get_*`
   lookups binding `farm_code` and `turbine_id`. Model nodes: `add_model`
   (replaces), `get_models`, `get_model_inputs`; IRIs
-  `kt:<Class>_<FARM>_<T>_<variant>`.
+  `kt:<Class>_<FARM>_<T>_<variant>`, or `kt:<Class>_<FARM>_<T>_<qualifier>_<variant>`
+  with an optional qualifier (spec key `qualifier`; thermal: the target).
 - `build_ontology.py`: `COMPONENTS` (component key → class) and
   `SIGNAL_SEMANTICS` (signal → component, observable, unit); builds the
   whole graph from `FarmSources` per farm (testable without disk).
@@ -89,8 +98,9 @@ flat in `tests/` (`test_<module>.py`).
   (`expected_<target>_<variant>`), `turbine_paths`, `with_turbine_specs`,
   `register_model` (graph node + metrics record), `merge_metrics`.
 - `binned.py`: method of bins (`binned_means`, `interpolate`).
-- `residual.py`: `ResidualModel` (base model + LightGBM residual, skips
-  rows where the base is NaN), base of every hybrid model.
+- `residual.py`: `ResidualModel` (base model + LightGBM residual; base
+  predicted per training frame, NaN rows skipped, optional row filter and
+  `base_as_feature`), base of every hybrid model.
 - `power_baseline.py`: §7.7 LightGBM baseline; `config.yaml`
   `models.power_baseline` holds inputs, features, target, constraints.
 - `physics_power.py`: `PhysicsPowerModel` (Cp(v_n) per turbine type,
@@ -101,6 +111,14 @@ flat in `tests/` (`test_<module>.py`).
 - `yaw.py`: `YawModel` (per turbine, `a·cos^k(γ − γ₀)` of the power
   ratio), `fit_offset`, `peak_drop` (identified flag), `offset_windows` →
   `data/processed/<farm>/yaw_offsets.parquet`.
+- `thermal/` (§7.9; frames keyed by `turbine_key` `KLM_T01`, models shared
+  across both farms): `features.py` (rolling-mean history features,
+  `normal_target_rows`, `target_spec`), `physics.py`
+  (`ThermalPhysicsModel`: heat balance fitted on free-run error with
+  PyTorch, all turbines batched; `simulate` free run with restarts and
+  warm-up), `baseline.py` (`LightGBMThermalModel`), `pinn.py`
+  (`ThermalPINN`, `ode_residual`), `train.py` (orchestration, per-target
+  saving, `--targets`).
 
 ## Rules (spec §8)
 
@@ -158,6 +176,13 @@ flat in `tests/` (`test_<module>.py`).
   fits are flagged `identified = False`. Don't "fix" this by widening
   the bounds.
 - Wind-direction features overfit the pitch hybrid; keep them out.
+- Thermal: never use the measured temperature (lags, one-step-ahead) as
+  a model input; residuals must reveal slow overheating. Most of these
+  temperatures are regulated by coolers (some fall as power rises), so the
+  physics model stays 1–3 °C worse than the ML variants; that is expected.
+  PINN λ above ~0.1 costs accuracy (the lumped balance is only ~5 °C good).
+- Thermal frames must stay sorted by timestamp and contiguous (the free
+  run restarts at gaps); slice the training period, don't mask it.
 - pandas 3: string columns keep NaN (not None) for missing values; parquet
   timestamps may not be ns, so convert with `.to_numpy("datetime64[ns]")`
   before numpy comparisons.

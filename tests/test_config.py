@@ -133,3 +133,14 @@ def test_shipped_fault_labels_map_each_message_to_one_component() -> None:
 
 def test_shipped_config_trains_up_to_end_of_2021() -> None:
     assert load_config()["train_test_split"]["train_end"] == "2021-12-31 23:50"
+
+
+def test_every_lightgbm_model_uses_the_configured_threads() -> None:
+    config = load_config()
+    jobs = {
+        name: spec["lightgbm"]["n_jobs"]
+        for name, spec in config["models"].items()
+        if "lightgbm" in spec
+    }
+
+    assert set(jobs.values()) == {config["compute"]["threads"]}

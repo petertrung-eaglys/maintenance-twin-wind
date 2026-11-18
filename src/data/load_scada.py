@@ -11,6 +11,7 @@ import pandas as pd
 
 from src.config import farm_names, farm_processed_dir, load_config, scada_dirs
 from src.data.scada_format import group_by_turbine, read_signals, turbine_data_files
+from src.storage import write_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def load_farm(config: dict[str, Any], farm: str) -> None:
     ).items():
         logger.info("Loading %d files for %s %s", len(files), farm, turbine_id)
         frame = load_turbine(turbine_id, files, config)
-        frame.to_parquet(out_dir / f"{turbine_id}.parquet", index=False)
+        write_parquet(frame, out_dir / f"{turbine_id}.parquet")
         missing = missing_percent(frame[list(all_signals(config))])
         print(f"\n{farm} {turbine_id}: {len(frame)} rows")
         print(f"  rows per year: {rows_per_year(frame)}")

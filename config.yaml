@@ -258,6 +258,10 @@ fault_labels:
 train_test_split:
   train_end: "2021-12-31 23:50"   # train 2016-2021, test 2022-2024
 seed: 42
+compute:
+  # CPU threads for LightGBM (each lightgbm block has n_jobs: *threads)
+  # and PyTorch. The machine has 24 cores and is also a desktop.
+  threads: &threads 8
 physics:
   reference_air_density: 1.225   # kg/m3, IEC 61400-12-1 normalisation
   bin_width: 0.5                 # m/s, method of bins
@@ -268,6 +272,49 @@ physics:
   max_power_fraction: 0.95
   cut_in_wind_speed: 3.0         # m/s; expected power is 0 outside
   cut_out_wind_speed: 25.0
+thermal:
+  # §7.9 thermal models. Every variant predicts a temperature from the
+  # operating inputs only (never from the measured temperature after a
+  # simulation start), so a component running hotter than normal shows as
+  # a residual. See README "Thermal models".
+  targets:                       # temperature signal -> component
+    gear_oil_temp: gearbox
+    gear_oil_inlet_temp: gearbox
+    generator_bearing_front_temp: generator
+    generator_bearing_rear_temp: generator
+    stator_temp: generator
+    front_bearing_temp: main_bearing
+    rear_bearing_temp: main_bearing
+  reference: nacelle_temp        # T_nac in the heat balance
+  power_scale_kw: 1000.0         # P in MW inside the heat balance
+  rotor_speed_scale_rpm: 15.0    # rotor speed / 15 rpm (cooling term)
+  # Rolling means (time windows, minutes) of the inputs: the "recent
+  # history" features of the LightGBM, hybrid and PINN variants.
+  history_inputs: [power, rotor_speed, ambient_temp, nacelle_temp]
+  history_windows_min: [60, 360, 1440]
+  device: auto                   # cuda if available, else cpu
+  physics:
+    # C dT/dt = c + a P + b P^2 - (h0 + h1 w)(T - T_nac), h0, h1 > 0,
+    # fitted per turbine on the error of day-long free-run simulations.
+    sequence_steps: 144          # one day of 10-minute steps
+    warmup_steps: 36             # 6 h after a (re)start are not predicted
+    iterations: 800
+    learning_rate: 0.02
+    # random sequences per step (of ~37k); all at once kept the GPU at
+    # full load for minutes (the PC rebooted during such a run)
+    batch_sequences: 4096
+  pinn:
+    # One network per target for all turbines of both farms.
+    hidden: 64
+    layers: 2
+    embedding_dim: 4
+    # lambda; ODE residual in degC per hour. Stator tuning (README): 0 and
+    # 0.01 give the same test RMSE, but 0.01 cuts the ODE residual from
+    # 25 to 6.5 degC/h; 1 and 10 cost 1-2.6 degC of RMSE.
+    ode_weight: 0.01
+    steps: 10000
+    batch_per_turbine: 256        # rows per turbine per step
+    learning_rate: 0.001
 yaw:
   # Static yaw misalignment per turbine (yaw.py): power ratio to the
   # turbine's training power curve vs measured misalignment, fitted as
@@ -298,6 +345,7 @@ models:
     monotone_increasing: [wind_speed]   # expected power never drops with wind
     lightgbm:
       n_estimators: 300
+      n_jobs: *threads
   power_physics:
     # Cp(v_n) curve per turbine type (method of bins), P = 1/2 rho0 A Cp v_n^3
     model_class: PowerModel
@@ -315,6 +363,7 @@ models:
     target: power
     lightgbm:
       n_estimators: 300
+      n_jobs: *threads
   pitch_physics:
     # binned pitch(v_n) per turbine type, above rated wind speed only
     model_class: PitchModel
@@ -333,6 +382,7 @@ models:
     target: pitch
     lightgbm:
       n_estimators: 300
+      n_jobs: *threads
   yaw:
     # power under misalignment, a cos^k(gamma - offset) x power curve
     model_class: YawModel
@@ -340,3 +390,31 @@ models:
     variant: physics
     inputs: [wind_speed, wind_direction, nacelle_direction, ambient_temp]
     target: power
+  # Thermal models: component, target and qualifier (= target) are set per
+  # target from thermal.targets; features from thermal.history_*.
+  thermal_physics:
+    model_class: ThermalModel
+    variant: physics
+    inputs: [power, rotor_speed, nacelle_temp]
+  thermal_baseline:
+    # LightGBM only
+    model_class: ThermalModel
+    variant: baseline
+    inputs: [power, rotor_speed, ambient_temp, nacelle_temp]
+    lightgbm:
+      n_estimators: 300
+      n_jobs: *threads
+  thermal_hybrid:
+    # physics free-run + LightGBM residual; the residual model also sees
+    # the physics prediction (without it the hybrid was worse than LightGBM)
+    model_class: ThermalModel
+    variant: hybrid
+    inputs: [power, rotor_speed, ambient_temp, nacelle_temp]
+    base_as_feature: true
+    lightgbm:
+      n_estimators: 300
+      n_jobs: *threads
+  thermal_pinn:
+    model_class: ThermalModel
+    variant: pinn
+    inputs: [power, rotor_speed, ambient_temp, nacelle_temp]

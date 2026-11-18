@@ -10,8 +10,8 @@ full specification.
 
 **Status:** milestones §7.1 (scaffold), §7.2 (download), §7.3
 (inspection), §7.4 (load, events, clean), §7.5 (ontology), §7.6–7.7
-(modelling conventions, LightGBM baseline) and §7.8 (physics and hybrid
-power, pitch and yaw) done. Later milestones add their pipeline steps and
+(modelling conventions, LightGBM baseline), §7.8 (physics and hybrid
+power, pitch and yaw) and §7.9 (thermal models) done. Later milestones add their pipeline steps and
 Makefile targets.
 
 Code is derived from the Kelmarsh power-performance twin in
@@ -74,7 +74,7 @@ components, sensors and Parquet paths through the SPARQL queries in
 the whole file, so steps that add models or alerts must run again after it.
 
 ```bash
-make train        # power (baseline, physics, hybrid), pitch, yaw (~100 s)
+make train        # power, pitch, yaw (~2 min), then thermal (~15 min)
 ```
 
 `make train` writes `expected_power_<variant>` and
@@ -86,6 +86,18 @@ turbine type as `power_physics_<model>.json` and
 metrics, `prov:generatedAtTime`) into the graph, and the metrics into
 `models/metrics.json`. The yaw step also writes the rolling-window
 misalignment estimates to `data/processed/<farm>/yaw_offsets.parquet`.
+
+The thermal step writes `expected_<temperature>_<variant>` (7 temperatures
+× physics, baseline, hybrid, pinn) and, under `models/thermal/`, the
+heat-balance parameters (`physics_<target>.json`) and the shared networks
+(`pinn_<target>.pt`); it uses the GPU when available. Every training step
+runs at low priority (`nice`) with `compute.threads` (8) CPU threads, and
+each Parquet file is written atomically (`src/storage.py`). To retrain
+selected temperatures only (the others keep their saved models):
+
+```bash
+uv run python -m src.models.thermal.train --targets front_bearing_temp
+```
 
 Every pipeline script runs standalone with
 `uv run python -m src.<package>.<name>` and has a Makefile target (added
@@ -337,6 +349,70 @@ the data really show a peak.
   test nRMSE 2.5–3.6 % on Penmanshiel (T08 6.7 %) and 3.5–4.4 % on
   Kelmarsh, on 5–10 m/s rows only (not comparable with the power models).
 
+**Thermal models (§7.9):** 7 temperatures (gear oil and gear-oil inlet;
+generator bearings front and rear, stator; main bearing front and rear),
+nacelle temperature as the reference, 4 variants each, 560 models. Every
+variant predicts from the operating inputs only (never from the measured
+temperature after a simulation start), so a component that runs hotter
+than normal shows up as a residual:
+
+- **physics:** heat balance `T[k+1] = T[k] + c + a·P + b·P² − (h₀ + h₁·ω)(T[k] − T_nac)`
+  per turbine (P in MW, ω = rotor speed / 15 rpm, h₀, h₁ > 0), fitted on
+  the error of day-long free-run simulations (PyTorch, all turbines at
+  once, each with its own parameters); predicted as a free run that
+  restarts from the measurement after gaps and is hidden for 6 h after a
+  restart.
+- **baseline (LightGBM only):** power, rotor speed, ambient and nacelle
+  temperature and their 1 h, 6 h and 24 h rolling means, per turbine.
+- **hybrid:** physics free run plus a per-turbine LightGBM model of its
+  residual (same features plus the physics prediction).
+- **pinn:** one MLP per temperature for all 20 turbines (same features,
+  rotor diameter as the turbine-type feature, a learned turbine
+  embedding), loss = MSE + λ·MSE(ODE residual in °C/h) with learnable
+  heat-balance parameters per turbine, λ = 0.01, per-turbine batches.
+
+Mean test RMSE (°C, 2022–2024; all variants scored on the same normal rows,
+68k–131k per model):
+
+| Temperature | Farm | Physics | Baseline | Hybrid | PINN |
+|---|---|---|---|---|---|
+| Gear oil | KLM | 3.92 | **1.62** | 1.62 | 1.63 |
+| Gear oil | PEN | 4.22 | **1.41** | 1.42 | 1.42 |
+| Gear-oil inlet | KLM | 6.07 | 3.64 | 3.65 | **3.61** |
+| Gear-oil inlet | PEN | 7.73 | 5.20 | 5.24 | **5.18** |
+| Generator bearing front | KLM | 3.95 | 2.17 | 2.19 | **2.12** |
+| Generator bearing front | PEN | 4.39 | 3.35 | 3.38 | **3.16** |
+| Generator bearing rear | KLM | 3.12 | 2.50 | 2.51 | **2.39** |
+| Generator bearing rear | PEN | 2.80 | 1.79 | 1.82 | **1.68** |
+| Stator | KLM | 4.90 | 1.62 | 1.64 | **1.61** |
+| Stator | PEN | 5.54 | 1.93 | 1.96 | **1.93** |
+| Main bearing front | KLM | 4.71 | **1.53** | 1.55 | 1.61 |
+| Main bearing front | PEN | 4.46 | **1.89** | 1.90 | 1.92 |
+| Main bearing rear | KLM | 4.45 | **2.12** | 2.14 | 2.17 |
+| Main bearing rear | PEN | 4.59 | **2.01** | 2.02 | 2.03 |
+| **Mean** | both | 4.71 | 2.41 | 2.43 | **2.38** |
+
+- The PINN is best on 78 of 140 turbine-temperature pairs (baseline 54,
+  hybrid 8); baseline, hybrid and PINN are within 0.05 °C of each other
+  except on the generator bearings, where the PINN gains up to 0.2 °C.
+  Which variant detects faults best is decided in §7.10.
+- The physics model is 1–3 °C worse: most of these temperatures are
+  actively regulated (gear oil stays at 51–57 °C at any power; the
+  gear-oil inlet and front generator bearing get **cooler** as power rises
+  because coolers and fans engage), which one heat balance cannot follow.
+  Its parameters are plausible: time constants of 3–7 h at standstill,
+  cooling 20–40 % stronger at full rotor speed.
+- The gear-oil inlet is the hardest signal for every variant (it switches
+  with the oil cooler).
+- PINN λ (stator, 10,000 steps): 0 and 0.01 give the same test RMSE (1.61
+  / 1.91 °C), but 0.01 cuts the network's ODE residual from 25.5 to
+  6.5 °C/h, i.e. its predictions stop jumping between 10-minute steps;
+  λ = 1 and 10 cost 1.1–1.3 and 2.1–2.6 °C of RMSE, because the lumped heat
+  balance itself is only accurate to about 5 °C.
+- The thermal step takes about 2 minutes per temperature (physics and PINN
+  on the GPU, LightGBM on 8 threads); system memory rose from about 5 to
+  10 GB while it ran.
+
 ## Testing and linting
 
 ```bash
@@ -535,6 +611,60 @@ make lint         # uv run ruff check .
     the physics model is undefined (NaN).
   - `config.yaml` gained `yaw` and `models.pitch_physics`,
     `models.pitch_hybrid`, `models.yaw`.
+- Thermal models (§7.9), decided with the user after testing the spec's
+  method on real data (KLM T01, test RMSE):
+  - **Extended heat balance:** the spec's `a·P + b·P² − h·(T − T_nac)`
+    gained a standstill heat term `c` and rotor-speed cooling `h₁·ω`. Fitted
+    one step ahead as specified, it gave negative `h` (unphysical) for the
+    regulated temperatures and diverged when simulated (gear oil, main
+    bearing).
+  - **Fitted on free-run error, predicted as a free run:** the spec fits
+    and predicts one step ahead from the measured T[k]. One-step RMSE
+    equals persistence ("T stays the same", e.g. stator 1.35 vs 1.36 °C),
+    so its residual follows the measurement and a component that slowly
+    runs hotter never raises an alert. The free run predicts from the
+    inputs only (scipy least squares replaced by PyTorch, which
+    differentiates through the simulation).
+  - **"Recent history" = rolling means of the inputs,** never lagged
+    measured temperature, for the hybrid, baseline and PINN, for the same
+    reason.
+  - The hybrid's residual model also sees the physics prediction (without
+    it the hybrid was worse than the baseline: stator 1.83 vs 1.62 °C).
+  - PINN: the ODE residual is evaluated on every contiguous row pair
+    (stops included, the heat balance holds there too); data loss on
+    normal rows; h₀, h₁ positive through softplus, c, a, b free (some
+    temperatures fall with power). λ = 0.01 (see Results). Rotor diameter
+    is the turbine-type feature (both types have the same rated power).
+    "Per-turbine data loaders" = every step draws the same number of rows
+    (256) from each turbine.
+  - All 7 component temperatures of §7.3 are modelled; the model IRI has
+    the temperature as a qualifier, e.g.
+    `kt:ThermalModel_KLM_T01_gear_oil_temp_hybrid` (the spec's
+    `…_gearbox_hybrid` would collide for gear oil and gear-oil inlet).
+    `graph_utils.model_iri`/`add_model` and `modelling.model_id_of` take an
+    optional qualifier; power, pitch and yaw IRIs are unchanged.
+  - The LightGBM-only variant is called `baseline`, as for power.
+  - Physics and PINN files are shared by all turbines
+    (`models/thermal/physics_<target>.json`, `pinn_<target>.pt`); each
+    turbine's model node points to them.
+  - `torch` added (approved in §5).
+- Compute and robustness (added during §7.9): this workstation reset
+  itself three times during training runs (no clean shutdown; GPU at most
+  62 °C and 154 W, RAM at most 10 of 60 GB in the monitored run; the cause
+  is unknown, and a later GPU run completed). One reset left a 0-byte
+  turbine Parquet, rebuilt from the raw files. Since then:
+  - `src/storage.write_parquet` writes every Parquet atomically
+    (temporary file, fsync, rename);
+  - `compute.threads` (8) caps LightGBM (`n_jobs` in every `lightgbm`
+    block, via a YAML alias) and PyTorch; `make train` runs under
+    `nice -n 10`;
+  - the thermal step reads only the columns it needs, slices instead of
+    copying, saves the graph, metrics and predictions after every
+    temperature, and retrains selected temperatures with `--targets`;
+  - the physics fit uses 4,096 random sequences per step and the PINN 256
+    rows per turbine per step (lighter GPU load).
+  - `ResidualModel` predicts the base per training frame, takes a row
+    filter and can use the base prediction as a feature.
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

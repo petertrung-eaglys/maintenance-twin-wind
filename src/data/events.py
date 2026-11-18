@@ -10,6 +10,7 @@ import pandas as pd
 
 from src.config import farm_names, farm_processed_dir, load_config, scada_dirs
 from src.data.scada_format import read_status, status_files
+from src.storage import write_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def main() -> None:
         events = load_events(config, farm)
         out_dir = farm_processed_dir(config, farm)
         out_dir.mkdir(parents=True, exist_ok=True)
-        events.to_parquet(out_dir / "events.parquet", index=False)
+        write_parquet(events, out_dir / "events.parquet")
         logger.info("Wrote %d events for %s", len(events), farm)
         print(f"\n{farm}: {len(events)} events, fault events per component:")
         print(fault_counts(events).to_string())

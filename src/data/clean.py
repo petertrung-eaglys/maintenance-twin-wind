@@ -12,6 +12,7 @@ import pandas as pd
 
 from src.config import farm_names, farm_processed_dir, farm_raw_dir, load_config
 from src.data.static_data import read_static
+from src.storage import write_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def clean_farm(config: dict[str, Any], farm: str) -> None:
             spec["commercial_operations_date"],
             stopped,
         )
-        cleaned.to_parquet(path, index=False)
+        write_parquet(cleaned, path)
         logger.info("Cleaned %s", path)
         print(
             f"{farm} {turbine_id}: {len(cleaned)} rows, "

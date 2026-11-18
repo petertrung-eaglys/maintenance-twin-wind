@@ -169,6 +169,34 @@ def test_model_iri_and_local_name() -> None:
     assert local_name(iri) == "ThermalModel_KLM_T01_hybrid"
 
 
+def test_model_iri_qualifier_separates_models_of_one_component() -> None:
+    iri = model_iri("ThermalModel", "KLM", "T01", "hybrid", "gear_oil_temp")
+
+    assert local_name(iri) == "ThermalModel_KLM_T01_gear_oil_temp_hybrid"
+
+
+def test_add_model_with_qualifier_keeps_both_models(graph: Graph) -> None:
+    for qualifier in ("a", "b"):
+        add_model(
+            graph,
+            "ThermalModel",
+            "KLM",
+            "T01",
+            "gearbox",
+            "physics",
+            ["power"],
+            "gear_oil_temp",
+            METRICS,
+            TRAINED_AT,
+            qualifier=qualifier,
+        )
+
+    assert sorted(get_models(graph)["model"].map(local_name)) == [
+        "ThermalModel_KLM_T01_a_physics",
+        "ThermalModel_KLM_T01_b_physics",
+    ]
+
+
 def test_add_model_is_returned_by_get_models(graph: Graph) -> None:
     add_power_model(graph)
 

@@ -740,3 +740,28 @@ and the Kelmarsh repo tag the code was derived from.
   assertion changes). Entries above keep the old paths.
 - `.gitignore`: `/data/` and `/models/` anchored to the repository root,
   so `src/data/` and `src/models/` are not ignored.
+
+### Milestone 7.9: thermal models (2026-11-18)
+
+- Decision (with the user, after testing on real data): the spec's
+  one-step heat balance gave unphysical parameters on the regulated
+  temperatures and one-step predictions equal persistence, so slow
+  overheating would never alert. Instead every variant predicts from the
+  operating inputs only (README, "Deviations from spec").
+- `src/models/thermal/`: `features.py` (rolling-mean history features,
+  turbine keys, row filters, per-target specs), `physics.py` (extended heat
+  balance `c + aP + bP² − (h₀ + h₁ω)(T − T_nac)`, fitted on free-run error
+  with PyTorch, free-run prediction), `baseline.py` (LightGBM only),
+  `pinn.py` (one network per temperature for all turbines, turbine
+  embedding, learnable per-turbine ODE parameters, λ = 0.01), `train.py`
+  (all four variants for 7 temperatures × 20 turbines; `--targets`).
+- Model IRIs take an optional qualifier (the temperature).
+  `ResidualModel`: per-frame base prediction, row filter, base prediction
+  as a feature.
+- Robustness after workstation resets during training: atomic Parquet
+  writes (`src/storage.py`, used by every step), `compute.threads` for
+  LightGBM and PyTorch, `nice` in `make train`, per-target saving, smaller
+  GPU batches. `torch` added.
+- Acceptance: 560 thermal models; mean test RMSE physics / baseline /
+  hybrid / PINN 4.71 / 2.41 / 2.43 / 2.38 °C; PINN best on 78 of 140
+  turbine-temperature pairs.

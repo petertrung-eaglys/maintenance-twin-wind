@@ -84,8 +84,15 @@ def with_turbine_specs(frame: pd.DataFrame, spec: pd.Series) -> pd.DataFrame:
 
 
 def model_id_of(spec: dict[str, Any], farm_code: str, turbine_id: str) -> str:
-    """Model id (IRI local name), e.g. PowerModel_KLM_T01_baseline."""
-    iri = model_iri(spec["model_class"], farm_code, turbine_id, spec["variant"])
+    """Model id (IRI local name), e.g. PowerModel_KLM_T01_baseline; an
+    optional spec `qualifier` goes before the variant."""
+    iri = model_iri(
+        spec["model_class"],
+        farm_code,
+        turbine_id,
+        spec["variant"],
+        spec.get("qualifier"),
+    )
     return local_name(iri)
 
 
@@ -122,6 +129,7 @@ def register_model(
         metrics,
         datetime.now(UTC),
         str(model_file),
+        spec.get("qualifier"),
     )
     entry = metrics_entry(spec, farm_code, turbine_id, metrics)
     return model_id_of(spec, farm_code, turbine_id), entry

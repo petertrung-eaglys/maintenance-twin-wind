@@ -34,6 +34,7 @@ from src.models.modelling import (
 )
 from src.models.physics_power import normalised_wind_speed
 from src.models.residual import ResidualModel
+from src.storage import write_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,7 @@ def train_turbine(
         rmse = metrics["rmse"]
         print(f"{code} {turbine_id} pitch {spec['variant']}: RMSE {rmse:.2f} deg")
     columns = {prediction_column("pitch", v): o for v, o in outputs.items()}
-    pd.read_parquet(path).assign(**columns).to_parquet(path, index=False)
+    write_parquet(pd.read_parquet(path).assign(**columns), path)
     return entries
 
 

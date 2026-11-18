@@ -37,6 +37,7 @@ from src.models.modelling import (
     with_turbine_specs,
 )
 from src.models.residual import ResidualModel
+from src.storage import write_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ def train_turbine(
         )
         print(f"{code} {turbine_id} {spec['variant']}: nRMSE {metrics['nrmse']:.2%}")
     columns = {prediction_column("power", v): o for v, o in outputs.items()}
-    pd.read_parquet(path).assign(**columns).to_parquet(path, index=False)
+    write_parquet(pd.read_parquet(path).assign(**columns), path)
     return entries
 
 

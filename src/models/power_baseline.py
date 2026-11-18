@@ -27,6 +27,7 @@ from src.models.modelling import (
     split_masks,
     turbine_paths,
 )
+from src.storage import write_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ def run_turbine(
         config["seed"],
     )
     column = prediction_column(spec["target"], spec["variant"])
-    frame.assign(**{column: expected}).to_parquet(path, index=False)
+    write_parquet(frame.assign(**{column: expected}), path)
     model_id = model_id_of(spec, code, turbine_id)
     model_file = Path(config["paths"]["models"]) / farm / f"{model_id}.txt"
     model_file.parent.mkdir(parents=True, exist_ok=True)
