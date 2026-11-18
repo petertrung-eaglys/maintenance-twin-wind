@@ -9,9 +9,10 @@ before the turbine raises a fault. See [docs/spec.md](docs/spec.md) for the
 full specification.
 
 **Status:** milestones §7.1 (scaffold), §7.2 (download), §7.3
-(inspection), §7.4 (load, events, clean), §7.5 (ontology) and §7.6–7.7
-(modelling conventions, LightGBM baseline) done. Later milestones add
-their pipeline steps and Makefile targets.
+(inspection), §7.4 (load, events, clean), §7.5 (ontology), §7.6–7.7
+(modelling conventions, LightGBM baseline) and the power half of §7.8
+(physics and hybrid power) done. Later milestones add their pipeline steps
+and Makefile targets.
 
 Code is derived from the Kelmarsh power-performance twin in
 `~/digital-twin-wind-farm`, tag **`v1.0-kelmarsh`** (copied and adapted, not
@@ -73,13 +74,14 @@ components, sensors and Parquet paths through the SPARQL queries in
 the whole file, so steps that add models or alerts must run again after it.
 
 ```bash
-make train        # LightGBM baseline power model per turbine (~25 s)
+make train        # baseline, physics and hybrid power models (~50 s)
 ```
 
-`make train` writes `expected_power_baseline` into each turbine Parquet,
-one LightGBM model file per turbine under `models/<farm>/`, the model
-nodes (inputs, target, metrics, `prov:generatedAtTime`) into the graph,
-and the metrics into `models/metrics.json`.
+`make train` writes `expected_power_<variant>` into each turbine Parquet,
+model files under `models/<farm>/` (LightGBM boosters, and the fitted Cp
+curve per turbine type as `power_physics_<model>.json`), the model nodes
+(inputs, target, metrics, `prov:generatedAtTime`) into the graph, and the
+metrics into `models/metrics.json`.
 
 Every pipeline script runs standalone with `uv run python -m src.<name>`
 and has a Makefile target (added per milestone).
@@ -196,6 +198,46 @@ rows of 2016–2021, tested on normal rows of 2022–2024 (rated power
   about −193 kW in Q1–Q2 2022, then back within ±15 kW from Q3 2022. Part
   of the episode lies in the training period, so this healthy-only model
   learned from some degraded rows; it is a case study for §7.10–7.12.
+
+**Physics and hybrid power models (§7.8):** the physics model is one
+power-coefficient curve Cp(v_n) per turbine type (method of bins on
+density-normalised wind speed, 0.5 m/s bins), giving P = ½ ρ₀ A Cp(v_n)
+v_n³ with each turbine's rotor area, capped at rated power. Fitted
+maximum Cp: **0.504 (MM92)** and **0.476 (MM82)**, both below the Betz
+limit 0.593 (nacelle anemometers behind the rotor read low, which raises
+apparent Cp). The hybrid adds a per-turbine LightGBM model of the physics
+residual. Test nRMSE (RMSE / rated power):
+
+| Farm | Turbine | Baseline | Physics | Hybrid |
+|---|---|---|---|---|
+| KLM | T01 | 3.64 % | 3.75 % | 3.65 % |
+| KLM | T02 | 3.59 % | 3.69 % | 3.58 % |
+| KLM | T03 | 3.34 % | 3.62 % | 3.31 % |
+| KLM | T04 | 4.55 % | 4.56 % | 4.54 % |
+| KLM | T05 | 3.56 % | 3.87 % | 3.54 % |
+| KLM | T06 | 3.20 % | 3.26 % | 3.22 % |
+| PEN | T01 | 2.47 % | 2.87 % | 2.76 % |
+| PEN | T02 | 2.81 % | 3.22 % | 3.16 % |
+| PEN | T04 | 2.71 % | 3.21 % | 3.01 % |
+| PEN | T05 | 2.80 % | 3.45 % | 3.13 % |
+| PEN | T06 | 2.62 % | 3.07 % | 2.83 % |
+| PEN | T07 | 2.56 % | 2.91 % | 2.56 % |
+| PEN | T08 | 6.53 % | 6.62 % | 6.60 % |
+| PEN | T09 | 2.62 % | 2.97 % | 2.63 % |
+| PEN | T10 | 2.64 % | 3.42 % | 2.60 % |
+| PEN | T11 | 2.98 % | 3.58 % | 2.91 % |
+| PEN | T12 | 3.08 % | 3.54 % | 3.19 % |
+| PEN | T13 | 2.51 % | 2.91 % | 2.83 % |
+| PEN | T14 | 2.93 % | 3.44 % | 3.14 % |
+| PEN | T15 | 2.99 % | 3.85 % | 3.22 % |
+| **Mean** | KLM | 3.65 % | 3.79 % | 3.64 % |
+| **Mean** | PEN | 3.02 % | 3.50 % | 3.18 % |
+
+- One physics curve per turbine type is within 0.1–0.8 percentage points
+  of a per-turbine LightGBM model. The hybrid beats physics on all 20
+  turbines and matches the baseline (better on 6, within 0.3 points
+  elsewhere). Within one site the baseline is hard to beat; the physics
+  variants are built for transfer (§7.11).
 
 ## Testing and linting
 
@@ -333,6 +375,33 @@ make lint         # uv run ruff check .
   - Train/test rows also require the model's features and target to be
     present (`split_masks(frame, train_end, required)`).
   - `scikit-learn` added: LightGBM's scikit-learn wrapper needs it.
+- Physics and hybrid power (§7.8):
+  - The physics curve is Cp(v_n) (power per rotor area / ½ ρ₀ v_n³ per
+    bin), not P_bin(v_n), so it carries over to another rotor size. Cp is
+    fitted only on the bins below the first one whose mean power reaches
+    95 % of rated (`physics.max_power_fraction`); above that the
+    controller, not aerodynamics, limits power, and keeping those bins
+    under-predicted a smaller rotor by about 400 kW in a synthetic test.
+    Cp is held flat past the last bin and the rated cap applies, so the
+    model has a sharp knee at rated power, which adds error near rated.
+    The curves stop at 10.7 m/s (MM92) and 12.7 m/s (MM82).
+  - The physics model is fitted per turbine type through
+    `fit(train_frames)` with all turbines of that type in the farm; the
+    hybrid residual model is per turbine.
+  - Turbine specs (rotor diameter, rated power) come from the graph and are
+    added to each frame as constant columns
+    (`modelling.with_turbine_specs`), so `predict(frame)` needs nothing
+    else.
+  - The hybrid residual model has no monotone constraint (its target is
+    a residual, not power); the hybrid output is clipped to [0, rated].
+  - `config.yaml` gained `physics` (reference density, bins, cut-in and
+    cut-out, `max_power_fraction`) and `models.power_physics`,
+    `models.power_hybrid`. `scipy` added explicitly (approved; it was
+    already installed through LightGBM).
+  - Shared registration moved to `modelling.py` (`register_model`,
+    `metrics_entry`, `model_id_of`); `src/binned.py` holds the method of
+    bins for reuse by the pitch model.
+  - Pitch and yaw models (also §7.8) follow in a separate commit.
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

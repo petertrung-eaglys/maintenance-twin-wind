@@ -690,3 +690,16 @@ and the Kelmarsh repo tag the code was derived from.
 - Acceptance: 20 models; nRMSE 3.2–4.6 % (Kelmarsh), 2.5–3.1 %
   (Penmanshiel) except PEN T08 (6.5 %, a months-long underperformance
   episode in 2021–2022).
+
+### Milestone 7.8, part 1: physics and hybrid power (2026-11-18)
+
+- `src/physics_power.py`: `PhysicsPowerModel` (Cp(v_n) curve per turbine
+  type from the aerodynamic bins, P = ½ ρ₀ A Cp v_n³ capped at rated, zero
+  outside cut-in/cut-out, Betz check) and `HybridPowerModel` (physics +
+  LightGBM residual per turbine). `src/binned.py` (method of bins).
+  Added to `make train`; `scipy` added.
+- Refactor: `metrics_entry` moved to `modelling.py` with
+  `register_model`, `model_id_of`, `with_turbine_specs`.
+- Acceptance: max Cp 0.504 (MM92) and 0.476 (MM82), below Betz; mean test
+  nRMSE baseline / physics / hybrid 3.65 / 3.79 / 3.64 % (Kelmarsh) and
+  3.02 / 3.50 / 3.18 % (Penmanshiel).

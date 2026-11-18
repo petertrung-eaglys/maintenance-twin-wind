@@ -258,6 +258,16 @@ fault_labels:
 train_test_split:
   train_end: "2021-12-31 23:50"   # train 2016-2021, test 2022-2024
 seed: 42
+physics:
+  reference_air_density: 1.225   # kg/m3, IEC 61400-12-1 normalisation
+  bin_width: 0.5                 # m/s, method of bins
+  min_bin_count: 20              # bins with fewer training rows are dropped
+  # Cp is fitted only on bins whose mean power is below this share of rated
+  # power: above it the controller limits power, which is not aerodynamics
+  # and would not transfer to another rotor size.
+  max_power_fraction: 0.95
+  cut_in_wind_speed: 3.0         # m/s; expected power is 0 outside
+  cut_out_wind_speed: 25.0
 models:
   # One entry per model variant. inputs are sensors (graph kt:hasInput);
   # features are the columns the model sees (derived from the inputs).
@@ -269,5 +279,22 @@ models:
     features: [wind_speed, wind_dir_sin, wind_dir_cos, ambient_temp, air_density]
     target: power
     monotone_increasing: [wind_speed]   # expected power never drops with wind
+    lightgbm:
+      n_estimators: 300
+  power_physics:
+    # Cp(v_n) curve per turbine type (method of bins), P = 1/2 rho0 A Cp v_n^3
+    model_class: PowerModel
+    component: generator
+    variant: physics
+    inputs: [wind_speed, ambient_temp]
+    target: power
+  power_hybrid:
+    # physics prediction + LightGBM model of its residual, per turbine
+    model_class: PowerModel
+    component: generator
+    variant: hybrid
+    inputs: [wind_speed, wind_direction, ambient_temp]
+    features: [wind_speed, wind_dir_sin, wind_dir_cos, ambient_temp, air_density]
+    target: power
     lightgbm:
       n_estimators: 300

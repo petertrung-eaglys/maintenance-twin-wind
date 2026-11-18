@@ -9,6 +9,7 @@
 
 import json
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, Self
 
@@ -16,7 +17,14 @@ import numpy as np
 import pandas as pd
 from rdflib import Graph
 
-from src.graph_utils import get_sensors, get_turbines, parquet_path_of
+from src.graph_utils import (
+    add_model,
+    get_sensors,
+    get_turbines,
+    local_name,
+    model_iri,
+    parquet_path_of,
+)
 
 
 class NormalBehaviourModel(Protocol):
@@ -64,6 +72,59 @@ def turbine_paths(g: Graph, farm_code: str) -> dict[str, Path]:
     """Turbine id -> Parquet path of every turbine of a farm, via the graph."""
     turbines = get_turbines(g, farm_code)["turbine_id"]
     return {t: parquet_path_of(get_sensors(g, farm_code, t)) for t in turbines}
+
+
+def with_turbine_specs(frame: pd.DataFrame, spec: pd.Series) -> pd.DataFrame:
+    """Add the turbine's rotor diameter and rated power as constant columns,
+    so physics-based models can read them from the frame they predict."""
+    return frame.assign(
+        rotor_diameter_m=spec["rotor_diameter_m"],
+        rated_power_kw=spec["rated_power_kw"],
+    )
+
+
+def model_id_of(spec: dict[str, Any], farm_code: str, turbine_id: str) -> str:
+    """Model id (IRI local name), e.g. PowerModel_KLM_T01_baseline."""
+    iri = model_iri(spec["model_class"], farm_code, turbine_id, spec["variant"])
+    return local_name(iri)
+
+
+def metrics_entry(
+    spec: dict[str, Any], farm_code: str, turbine_id: str, metrics: dict
+) -> dict[str, Any]:
+    """One models/metrics.json record."""
+    keys = ("component", "variant", "target")
+    return (
+        {"farm_code": farm_code, "turbine_id": turbine_id}
+        | {k: spec[k] for k in keys}
+        | metrics
+    )
+
+
+def register_model(
+    g: Graph,
+    spec: dict[str, Any],
+    farm_code: str,
+    turbine_id: str,
+    metrics: dict[str, float],
+    model_file: Path,
+) -> tuple[str, dict[str, Any]]:
+    """Add the model node to the graph; return its id and metrics record."""
+    add_model(
+        g,
+        spec["model_class"],
+        farm_code,
+        turbine_id,
+        spec["component"],
+        spec["variant"],
+        spec["inputs"],
+        spec["target"],
+        metrics,
+        datetime.now(UTC),
+        str(model_file),
+    )
+    entry = metrics_entry(spec, farm_code, turbine_id, metrics)
+    return model_id_of(spec, farm_code, turbine_id), entry
 
 
 def merge_metrics(path: Path, entries: dict[str, dict[str, Any]]) -> dict:

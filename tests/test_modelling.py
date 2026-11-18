@@ -12,9 +12,12 @@ from src.modelling import (
     add_direction_features,
     evaluate,
     merge_metrics,
+    metrics_entry,
+    model_id_of,
     prediction_column,
     split_masks,
     turbine_paths,
+    with_turbine_specs,
 )
 
 
@@ -78,3 +81,36 @@ def test_turbine_paths_come_from_the_graph(graph: Graph) -> None:
         "T01": Path("data/processed/kelmarsh/T01.parquet"),
         "T02": Path("data/processed/kelmarsh/T02.parquet"),
     }
+
+
+SPEC = {"component": "generator", "variant": "baseline", "target": "power"}
+
+
+def test_metrics_entry_records_model_identity() -> None:
+    entry = metrics_entry(SPEC, "PEN", "T03", {"rmse": 1.0})
+
+    assert entry == {
+        "farm_code": "PEN",
+        "turbine_id": "T03",
+        "component": "generator",
+        "variant": "baseline",
+        "target": "power",
+        "rmse": 1.0,
+    }
+
+
+def test_model_id_of_uses_class_farm_turbine_and_variant() -> None:
+    spec = {"model_class": "ThermalModel", "variant": "pinn"}
+
+    assert model_id_of(spec, "PEN", "T08") == "ThermalModel_PEN_T08_pinn"
+
+
+def test_with_turbine_specs_adds_constant_columns() -> None:
+    spec = pd.Series({"rotor_diameter_m": 82.0, "rated_power_kw": 2050.0})
+
+    frame = with_turbine_specs(pd.DataFrame({"x": [1, 2]}), spec)
+
+    assert frame[["rotor_diameter_m", "rated_power_kw"]].values.tolist() == [
+        [82.0, 2050.0],
+        [82.0, 2050.0],
+    ]

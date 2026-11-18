@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.power_baseline import LightGBMPowerModel, metrics_entry, train_turbine
+from src.power_baseline import LightGBMPowerModel, train_turbine
 
 RATED = 2050.0
 SEED = 42
@@ -98,16 +98,3 @@ def test_fit_accepts_several_turbines() -> None:
     model = LightGBMPowerModel(SPEC, SEED).fit(frames)
 
     assert len(model.predict(frames["T02"])) == 500
-
-
-def test_metrics_entry_records_model_identity() -> None:
-    entry = metrics_entry(SPEC, "PEN", "T03", {"rmse": 1.0})
-
-    assert entry == {
-        "farm_code": "PEN",
-        "turbine_id": "T03",
-        "component": "generator",
-        "variant": "baseline",
-        "target": "power",
-        "rmse": 1.0,
-    }

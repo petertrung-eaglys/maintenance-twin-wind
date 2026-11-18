@@ -10,7 +10,8 @@ results, limitations and "Deviations from spec". Read both before changing
 behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (inspection; decisions in the README "Data inspection decisions"), §7.4
 (load, events, clean), §7.5 (ontology), §7.6–7.7 (modelling conventions,
-LightGBM power baseline).
+LightGBM power baseline), §7.8 part 1 (physics and hybrid power; pitch and
+yaw still to do).
 
 ## Package management: uv only
 
@@ -27,7 +28,7 @@ make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
 make inspect   # raw structure, column coverage, events (~1 min)
 make data      # load_scada -> events -> clean (~9 min, order matters)
 make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
-make train     # all model variants (so far: power baseline, ~25 s)
+make train     # all model variants (so far: power baseline/physics/hybrid)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -60,7 +61,12 @@ Makefile target in its milestone.
 - `src/modelling.py`: §7.6 conventions shared by every variant:
   `NormalBehaviourModel` (`fit(train_frames: Mapping[tid, DataFrame])`,
   `predict(frame)`), `split_masks`, `evaluate`, `prediction_column`
-  (`expected_<target>_<variant>`), `turbine_paths`, `merge_metrics`.
+  (`expected_<target>_<variant>`), `turbine_paths`, `with_turbine_specs`,
+  `register_model` (graph node + metrics record), `merge_metrics`.
+- `src/binned.py`: method of bins (`binned_means`, `interpolate`).
+- `src/physics_power.py`: `PhysicsPowerModel` (Cp(v_n) per turbine type,
+  aerodynamic bins only, uses each turbine's rotor area) and
+  `HybridPowerModel` (physics + LightGBM residual per turbine).
 - `src/power_baseline.py`: §7.7 LightGBM baseline; `config.yaml`
   `models.power_baseline` holds inputs, features, target, constraints.
   Model nodes: `graph_utils.add_model` (replaces), `get_models`,
@@ -119,6 +125,10 @@ Makefile target in its milestone.
   `make train` (new `prov:generatedAtTime`); commit it when its structure
   changed.
 - LightGBM's `LGBMRegressor` needs scikit-learn installed.
+- Physics Cp curves must stop at the first power-limited bin: above
+  rated, Cp falls only because the controller caps power, which does not
+  transfer between rotor sizes; storm control lowers mean power again at
+  high wind, so filtering bins one by one is not enough.
 - Penmanshiel T08 underperforms from 2021 to mid-2022 (partly in the
   training period): expected, not a bug.
 - pandas 3: string columns keep NaN (not None) for missing values; parquet

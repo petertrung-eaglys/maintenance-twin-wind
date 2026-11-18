@@ -19,6 +19,7 @@ ontology:
 
 train:
 	uv run python -m src.power_baseline
+	uv run python -m src.physics_power
 
 test:
 	uv run pytest

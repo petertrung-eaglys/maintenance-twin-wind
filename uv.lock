@@ -259,6 +259,8 @@ dependencies = [
     { name = "rdflib" },
     { name = "requests" },
     { name = "scikit-learn" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "tqdm" },
 ]
 
@@ -278,6 +280,7 @@ requires-dist = [
     { name = "rdflib", specifier = ">=7.6.0" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
+    { name = "scipy", specifier = ">=1.17.1" },
     { name = "tqdm", specifier = ">=4.70.1" },
 ]
 

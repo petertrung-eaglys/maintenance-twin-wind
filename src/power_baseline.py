@@ -7,7 +7,6 @@ metrics to models/metrics.json.
 
 import logging
 from collections.abc import Mapping
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Self
 
@@ -17,19 +16,14 @@ from lightgbm import LGBMRegressor
 from rdflib import Graph
 
 from src.config import farm_names, load_config
-from src.graph_utils import (
-    add_model,
-    get_turbines,
-    load_graph,
-    local_name,
-    model_iri,
-    save_graph,
-)
+from src.graph_utils import get_turbines, load_graph, save_graph
 from src.modelling import (
     add_direction_features,
     evaluate,
     merge_metrics,
+    model_id_of,
     prediction_column,
+    register_model,
     split_masks,
     turbine_paths,
 )
@@ -86,18 +80,6 @@ def train_turbine(
     )
 
 
-def metrics_entry(
-    spec: dict[str, Any], farm_code: str, turbine_id: str, metrics: dict
-) -> dict[str, Any]:
-    """One models/metrics.json record."""
-    keys = ("component", "variant", "target")
-    return (
-        {"farm_code": farm_code, "turbine_id": turbine_id}
-        | {k: spec[k] for k in keys}
-        | metrics
-    )
-
-
 def run_turbine(
     g: Graph,
     config: dict[str, Any],
@@ -119,26 +101,11 @@ def run_turbine(
     )
     column = prediction_column(spec["target"], spec["variant"])
     frame.assign(**{column: expected}).to_parquet(path, index=False)
-    model_id = local_name(
-        model_iri(spec["model_class"], code, turbine_id, spec["variant"])
-    )
+    model_id = model_id_of(spec, code, turbine_id)
     model_file = Path(config["paths"]["models"]) / farm / f"{model_id}.txt"
     model_file.parent.mkdir(parents=True, exist_ok=True)
     model.regressor.booster_.save_model(model_file)
-    add_model(
-        g,
-        spec["model_class"],
-        code,
-        turbine_id,
-        spec["component"],
-        spec["variant"],
-        spec["inputs"],
-        spec["target"],
-        metrics,
-        datetime.now(UTC),
-        str(model_file),
-    )
-    return model_id, metrics_entry(spec, code, turbine_id, metrics)
+    return register_model(g, spec, code, turbine_id, metrics, model_file)
 
 
 def main() -> None:
