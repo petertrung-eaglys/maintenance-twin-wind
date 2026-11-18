@@ -1,4 +1,4 @@
-.PHONY: setup download inspect data ontology test lint
+.PHONY: setup download inspect data ontology train test lint
 
 setup:
 	uv sync
@@ -16,6 +16,9 @@ data:
 
 ontology:
 	uv run python -m src.build_ontology
+
+train:
+	uv run python -m src.power_baseline
 
 test:
 	uv run pytest

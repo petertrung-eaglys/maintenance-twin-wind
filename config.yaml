@@ -257,3 +257,17 @@ fault_labels:
     - Overload yaw motor 2&4
 train_test_split:
   train_end: "2021-12-31 23:50"   # train 2016-2021, test 2022-2024
+seed: 42
+models:
+  # One entry per model variant. inputs are sensors (graph kt:hasInput);
+  # features are the columns the model sees (derived from the inputs).
+  power_baseline:
+    model_class: PowerModel
+    component: generator
+    variant: baseline
+    inputs: [wind_speed, wind_direction, ambient_temp]
+    features: [wind_speed, wind_dir_sin, wind_dir_cos, ambient_temp, air_density]
+    target: power
+    monotone_increasing: [wind_speed]   # expected power never drops with wind
+    lightgbm:
+      n_estimators: 300

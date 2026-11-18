@@ -3,12 +3,14 @@ name = "maintenance-twin-wind"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "lightgbm>=4.7.0",
     "openpyxl>=3.1.5",
     "pandas>=3.1.1",
     "pyarrow>=26.0.1",
     "pyyaml>=6.0.3",
     "rdflib>=7.6.0",
     "requests>=2.34.2",
+    "scikit-learn>=1.9.1",
     "tqdm>=4.70.1",
 ]
 

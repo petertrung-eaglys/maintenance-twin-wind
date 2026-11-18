@@ -673,3 +673,20 @@ and the Kelmarsh repo tag the code was derived from.
   `config.yaml` `farms.*.mapping_file`.
 - Acceptance: `ontology/wind_twin.ttl` with both farms, 20 turbines, 300
   sensors, 1,043 fault events and the provenance of 429 source files.
+
+### Milestones 7.6–7.7: modelling conventions and baseline (2026-11-18)
+
+- `src/modelling.py`: `NormalBehaviourModel` protocol (`fit` on a mapping
+  turbine id → DataFrame, `predict`), `split_masks`, `evaluate` (RMSE,
+  MAE, nRMSE), `prediction_column`, `turbine_paths` (via the graph),
+  `merge_metrics` for `models/metrics.json`.
+- `src/power_baseline.py`: LightGBM power model per turbine with spec
+  features and a monotone constraint on wind speed; writes
+  `expected_power_baseline`, model files, graph model nodes and metrics.
+  `make train` target; `lightgbm` and `scikit-learn` added; `seed` and
+  `models.power_baseline` in `config.yaml`.
+- `graph_utils`: `model_iri`, `local_name`, `add_model`, `get_models`,
+  `get_model_inputs`; metric properties in the schema.
+- Acceptance: 20 models; nRMSE 3.2–4.6 % (Kelmarsh), 2.5–3.1 %
+  (Penmanshiel) except PEN T08 (6.5 %, a months-long underperformance
+  episode in 2021–2022).

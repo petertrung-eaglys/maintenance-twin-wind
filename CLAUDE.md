@@ -9,7 +9,8 @@ milestones in order; §11 logs every milestone and change. `README.md` holds
 results, limitations and "Deviations from spec". Read both before changing
 behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (inspection; decisions in the README "Data inspection decisions"), §7.4
-(load, events, clean), §7.5 (ontology).
+(load, events, clean), §7.5 (ontology), §7.6–7.7 (modelling conventions,
+LightGBM power baseline).
 
 ## Package management: uv only
 
@@ -26,6 +27,7 @@ make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
 make inspect   # raw structure, column coverage, events (~1 min)
 make data      # load_scada -> events -> clean (~9 min, order matters)
 make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
+make train     # all model variants (so far: power baseline, ~25 s)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -55,6 +57,14 @@ Makefile target in its milestone.
   IRI helpers (`turbine_iri("KLM", "T01")`, `component_iri`,
   `sensor_iri`, `fault_event_iri`, `source_iri`), SPARQL `*_QUERY`
   constants and `get_*` lookups binding `farm_code` and `turbine_id`.
+- `src/modelling.py`: §7.6 conventions shared by every variant:
+  `NormalBehaviourModel` (`fit(train_frames: Mapping[tid, DataFrame])`,
+  `predict(frame)`), `split_masks`, `evaluate`, `prediction_column`
+  (`expected_<target>_<variant>`), `turbine_paths`, `merge_metrics`.
+- `src/power_baseline.py`: §7.7 LightGBM baseline; `config.yaml`
+  `models.power_baseline` holds inputs, features, target, constraints.
+  Model nodes: `graph_utils.add_model` (replaces), `get_models`,
+  `get_model_inputs`; IRIs `kt:<Class>_<FARM>_<T>_<variant>`.
 - `src/build_ontology.py`: `COMPONENTS` (component key → class) and
   `SIGNAL_SEMANTICS` (signal → component, observable, unit); builds the
   whole graph from `FarmSources` per farm (testable without disk).
@@ -105,7 +115,12 @@ Makefile target in its milestone.
   variable bound outside it (`BIND(?outer AS ?s)` matches everything).
   Repeat the turbine pattern inside each branch (see `LINEAGE_QUERY`).
 - `ontology/wind_twin.ttl` is committed; tests use the synthetic graph in
-  `tests/conftest.py`, never the real file.
+  `tests/conftest.py`, never the real file. It changes on every
+  `make train` (new `prov:generatedAtTime`); commit it when its structure
+  changed.
+- LightGBM's `LGBMRegressor` needs scikit-learn installed.
+- Penmanshiel T08 underperforms from 2021 to mid-2022 (partly in the
+  training period): expected, not a bug.
 - pandas 3: string columns keep NaN (not None) for missing values; parquet
   timestamps may not be ns, so convert with `.to_numpy("datetime64[ns]")`
   before numpy comparisons.

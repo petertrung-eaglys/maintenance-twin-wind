@@ -9,8 +9,9 @@ before the turbine raises a fault. See [docs/spec.md](docs/spec.md) for the
 full specification.
 
 **Status:** milestones §7.1 (scaffold), §7.2 (download), §7.3
-(inspection), §7.4 (load, events, clean) and §7.5 (ontology) done. Later
-milestones add their pipeline steps and Makefile targets.
+(inspection), §7.4 (load, events, clean), §7.5 (ontology) and §7.6–7.7
+(modelling conventions, LightGBM baseline) done. Later milestones add
+their pipeline steps and Makefile targets.
 
 Code is derived from the Kelmarsh power-performance twin in
 `~/digital-twin-wind-farm`, tag **`v1.0-kelmarsh`** (copied and adapted, not
@@ -70,6 +71,15 @@ structural truth: later steps and the app discover farms, turbines,
 components, sensors and Parquet paths through the SPARQL queries in
 `src/graph_utils.py`, not through `config.yaml`. `make ontology` rewrites
 the whole file, so steps that add models or alerts must run again after it.
+
+```bash
+make train        # LightGBM baseline power model per turbine (~25 s)
+```
+
+`make train` writes `expected_power_baseline` into each turbine Parquet,
+one LightGBM model file per turbine under `models/<farm>/`, the model
+nodes (inputs, target, metrics, `prov:generatedAtTime`) into the graph,
+and the metrics into `models/metrics.json`.
 
 Every pipeline script runs standalone with `uv run python -m src.<name>`
 and has a Makefile target (added per milestone).
@@ -151,6 +161,41 @@ turbines with specs, 7 components and 15 sensors each (all 300 sensors
 matched to their farm's signal mapping), 1,043 fault events, and the
 provenance of 429 source files (33 downloads, 198 turbine data files, 198
 status files), each raw file `kt:partOf` the zip it was extracted from.
+
+**Baseline power model (§7.7):** LightGBM per turbine, trained on normal
+rows of 2016–2021, tested on normal rows of 2022–2024 (rated power
+2,050 kW for every turbine; nRMSE = RMSE / rated power):
+
+| Farm | Turbine | RMSE (kW) | nRMSE | MAE (kW) | Train rows | Test rows |
+|---|---|---|---|---|---|---|
+| KLM | T01 | 74.6 | 3.64 % | 50.1 | 245,216 | 130,349 |
+| KLM | T02 | 73.5 | 3.59 % | 52.1 | 249,019 | 132,271 |
+| KLM | T03 | 68.5 | 3.34 % | 48.8 | 243,584 | 129,538 |
+| KLM | T04 | 93.4 | 4.55 % | 56.2 | 249,542 | 121,104 |
+| KLM | T05 | 73.0 | 3.56 % | 51.3 | 241,994 | 126,964 |
+| KLM | T06 | 65.7 | 3.20 % | 46.7 | 235,443 | 122,427 |
+| PEN | T01 | 50.6 | 2.47 % | 35.1 | 222,905 | 80,367 |
+| PEN | T02 | 57.5 | 2.81 % | 39.6 | 218,489 | 78,421 |
+| PEN | T04 | 55.5 | 2.71 % | 38.9 | 221,197 | 75,875 |
+| PEN | T05 | 57.4 | 2.80 % | 39.7 | 218,701 | 75,856 |
+| PEN | T06 | 53.8 | 2.62 % | 37.6 | 215,018 | 73,612 |
+| PEN | T07 | 52.5 | 2.56 % | 36.6 | 209,781 | 73,546 |
+| PEN | T08 | 133.8 | 6.53 % | 82.7 | 219,439 | 79,029 |
+| PEN | T09 | 53.8 | 2.62 % | 36.1 | 212,530 | 75,451 |
+| PEN | T10 | 54.0 | 2.64 % | 37.4 | 211,743 | 69,523 |
+| PEN | T11 | 61.0 | 2.98 % | 41.1 | 223,968 | 120,896 |
+| PEN | T12 | 63.1 | 3.08 % | 43.6 | 228,034 | 126,893 |
+| PEN | T13 | 51.4 | 2.51 % | 34.9 | 228,348 | 127,846 |
+| PEN | T14 | 60.0 | 2.93 % | 42.2 | 226,950 | 126,738 |
+| PEN | T15 | 61.4 | 2.99 % | 42.8 | 227,954 | 125,581 |
+
+- Kelmarsh MAE (46.7–56.2 kW) matches the Kelmarsh repo (47.3–56.7 kW)
+  despite the added monotone constraint and the stricter cleaning.
+- **Penmanshiel T08** underperforms for months: its quarterly mean
+  normal-row residual is −62 and −44 kW in H1 2021, −119 kW in Q4 2021 and
+  about −193 kW in Q1–Q2 2022, then back within ±15 kW from Q3 2022. Part
+  of the episode lies in the training period, so this healthy-only model
+  learned from some degraded rows; it is a case study for §7.10–7.12.
 
 ## Testing and linting
 
@@ -267,6 +312,27 @@ make lint         # uv run ruff check .
     event provenance. `config.yaml` gained `farms.*.mapping_file`;
     `static_data.read_mapping` gives both farms' mapping tables the same
     column names.
+- Modelling (§7.6–7.7):
+  - Baseline features follow spec §7.7 (wind speed, wind direction
+    sin/cos, ambient temperature, air density); the Kelmarsh repo also
+    used the raw wind direction and not the ambient temperature. The
+    model's sensor inputs in the graph are `wind_speed`, `wind_direction`
+    and `ambient_temp`; the other features derive from them.
+  - The baseline has a LightGBM monotone constraint on wind speed (spec
+    §7.8 asks for it "in the ML-only variant as well").
+  - Metrics are RMSE, MAE and nRMSE (RMSE / rated power for power models),
+    stored per model in `models/metrics.json` keyed by the model's IRI
+    local name (`PowerModel_KLM_T01_baseline`), which merges with entries
+    from other scripts. The graph schema gained `kt:rmse`, `kt:mae`,
+    `kt:nrmse`, `kt:nTrain`, `kt:nTest`.
+  - Power models are `kt:modelOf` the generator component (the power
+    sensor monitors the generator). Model IRIs carry no component for
+    power models: `kt:PowerModel_KLM_T01_baseline`.
+  - Predictions are written to the turbine Parquet as
+    `expected_<target>_<variant>` (`expected_power_baseline`).
+  - Train/test rows also require the model's features and target to be
+    present (`split_masks(frame, train_end, required)`).
+  - `scikit-learn` added: LightGBM's scikit-learn wrapper needs it.
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

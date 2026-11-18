@@ -32,6 +32,9 @@ PREFIXES = {
     "xsd": XSD,
 }
 SCHEMA_TYPES = {RDFS.Class, RDF.Property}
+# metrics key -> model property (decimals, then integer counts)
+METRIC_PROPERTIES = {"rmse": KT.rmse, "mae": KT.mae, "nrmse": KT.nrmse}
+COUNT_PROPERTIES = {"n_train": KT.nTrain, "n_test": KT.nTest}
 
 FARMS_QUERY = """
 SELECT ?farm_code ?label ?dataset ?doi ?publisher ?license
@@ -141,6 +144,39 @@ WHERE {{
 }}
 """
 
+MODELS_QUERY = """
+SELECT ?model ?model_class ?farm_code ?turbine_id ?component_key ?variant
+       ?target ?rmse ?mae ?nrmse ?n_train ?n_test ?generated_at ?model_file
+WHERE {
+  ?model a ?model_class ;
+         kt:modelOf ?component ;
+         kt:modelVariant ?variant ;
+         kt:hasTarget/kt:signalKey ?target .
+  ?model_class rdfs:subClassOf kt:Model .
+  ?component kt:componentKey ?component_key .
+  ?turbine kt:hasComponent ?component ;
+           kt:turbineId ?turbine_id .
+  ?farm kt:hasTurbine ?turbine ;
+        kt:farmCode ?farm_code .
+  OPTIONAL { ?model kt:rmse ?rmse }
+  OPTIONAL { ?model kt:mae ?mae }
+  OPTIONAL { ?model kt:nrmse ?nrmse }
+  OPTIONAL { ?model kt:nTrain ?n_train }
+  OPTIONAL { ?model kt:nTest ?n_test }
+  OPTIONAL { ?model prov:generatedAtTime ?generated_at }
+  OPTIONAL { ?model kt:modelFile ?model_file }
+}
+ORDER BY ?farm_code ?turbine_id ?model
+"""
+
+MODEL_INPUTS_QUERY = """
+SELECT ?signal_key
+WHERE {
+  ?model kt:hasInput/kt:signalKey ?signal_key .
+}
+ORDER BY ?signal_key
+"""
+
 SCHEMA_CLASSES_QUERY = """
 SELECT ?class ?label ?parent
 WHERE {
@@ -191,6 +227,18 @@ def sensor_iri(farm_code: str, turbine_id: str, signal_key: str) -> URIRef:
 def fault_event_iri(farm_code: str, turbine_id: str, number: int) -> URIRef:
     """IRI of a fault event, e.g. kt:FaultEvent_KLM_T01_0001."""
     return KT[f"FaultEvent_{farm_code}_{turbine_id}_{number:04d}"]
+
+
+def model_iri(
+    model_class: str, farm_code: str, turbine_id: str, variant: str
+) -> URIRef:
+    """IRI of a model, e.g. kt:PowerModel_KLM_T01_baseline."""
+    return KT[f"{model_class}_{farm_code}_{turbine_id}_{variant}"]
+
+
+def local_name(iri: str) -> str:
+    """The part of a project IRI after '#', e.g. PowerModel_KLM_T01_baseline."""
+    return str(iri).split("#")[-1]
 
 
 def source_iri(file_name: str) -> URIRef:
@@ -314,3 +362,56 @@ def get_lineage(g: Graph, farm_code: str, turbine_id: str) -> pd.DataFrame:
 def get_schema(g: Graph) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Schema classes (with superclass) and properties (with domain, range)."""
     return query(g, SCHEMA_CLASSES_QUERY), query(g, SCHEMA_PROPERTIES_QUERY)
+
+
+def get_models(g: Graph, farm_code: str | None = None) -> pd.DataFrame:
+    """Models (optionally of one farm) with component, variant, target and
+    metrics (missing until trained)."""
+    frame = query(g, MODELS_QUERY, farm_code=farm_code)
+    return frame.assign(
+        farm_code=frame["farm_code"] if farm_code is None else farm_code,
+        model_class=frame["model_class"].str.split("#").str[-1],
+    )
+
+
+def get_model_inputs(g: Graph, model: str) -> list[str]:
+    """Signal keys of a model's input sensors."""
+    result = g.query(
+        MODEL_INPUTS_QUERY, initNs=PREFIXES, initBindings={"model": URIRef(model)}
+    )
+    return result_frame(result)["signal_key"].tolist()
+
+
+def add_model(
+    g: Graph,
+    model_class: str,
+    farm_code: str,
+    turbine_id: str,
+    component: str,
+    variant: str,
+    inputs: list[str],
+    target: str,
+    metrics: dict[str, float],
+    generated_at: datetime,
+    model_file: str | None = None,
+) -> URIRef:
+    """Add (or replace) a trained model node with its inputs and metrics."""
+    model = model_iri(model_class, farm_code, turbine_id, variant)
+    g.remove((model, None, None))
+    g.add((model, RDF.type, KT[model_class]))
+    g.add((model, RDF.type, PROV.Entity))
+    label = f"{model_class} {variant} {farm_code} {turbine_id}"
+    g.add((model, RDFS.label, Literal(label)))
+    g.add((model, KT.modelOf, component_iri(farm_code, turbine_id, component)))
+    g.add((model, KT.modelVariant, Literal(variant)))
+    g.add((model, KT.hasTarget, sensor_iri(farm_code, turbine_id, target)))
+    for key in inputs:
+        g.add((model, KT.hasInput, sensor_iri(farm_code, turbine_id, key)))
+    for name, prop in METRIC_PROPERTIES.items():
+        g.add((model, prop, decimal(metrics[name])))
+    for name, prop in COUNT_PROPERTIES.items():
+        g.add((model, prop, Literal(int(metrics[name]))))
+    g.add((model, PROV.generatedAtTime, datetime_literal(generated_at)))
+    if model_file is not None:
+        g.add((model, KT.modelFile, Literal(model_file)))
+    return model

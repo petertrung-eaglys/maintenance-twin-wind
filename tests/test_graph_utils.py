@@ -1,5 +1,6 @@
 """Tests for graph persistence and the SPARQL lookups."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -9,15 +10,39 @@ from rdflib import Graph
 from src.graph_utils import (
     KT,
     PROV,
+    add_model,
     get_fault_events,
     get_lineage,
+    get_model_inputs,
+    get_models,
     get_schema,
     get_sensors,
     load_graph,
+    local_name,
+    model_iri,
     parquet_path_of,
     save_graph,
     turbine_iri,
 )
+
+METRICS = {"rmse": 60.0, "mae": 40.0, "nrmse": 0.03, "n_train": 100, "n_test": 50}
+TRAINED_AT = datetime(2026, 11, 18, 12, 0, tzinfo=UTC)
+
+
+def add_power_model(g: Graph, rmse: float = 60.0) -> None:
+    add_model(
+        g,
+        "PowerModel",
+        "KLM",
+        "T01",
+        "generator",
+        "baseline",
+        ["wind_speed"],
+        "power",
+        METRICS | {"rmse": rmse},
+        TRAINED_AT,
+        "models/kelmarsh/x.txt",
+    )
 
 
 def short(iri: str) -> str:
@@ -136,3 +161,45 @@ def test_schema_has_spec_classes(graph: Graph) -> None:
         "Entity",
         True,
     )
+
+
+def test_model_iri_and_local_name() -> None:
+    iri = model_iri("ThermalModel", "KLM", "T01", "hybrid")
+
+    assert local_name(iri) == "ThermalModel_KLM_T01_hybrid"
+
+
+def test_add_model_is_returned_by_get_models(graph: Graph) -> None:
+    add_power_model(graph)
+
+    models = get_models(graph, "KLM")
+    assert models.drop(columns=["model", "generated_at"]).to_dict("records") == [
+        {
+            "model_class": "PowerModel",
+            "farm_code": "KLM",
+            "turbine_id": "T01",
+            "component_key": "generator",
+            "variant": "baseline",
+            "target": "power",
+            "rmse": 60.0,
+            "mae": 40.0,
+            "nrmse": 0.03,
+            "n_train": 100,
+            "n_test": 50,
+            "model_file": "models/kelmarsh/x.txt",
+        }
+    ]
+
+
+def test_add_model_replaces_previous_node(graph: Graph) -> None:
+    add_power_model(graph, rmse=60.0)
+    add_power_model(graph, rmse=55.0)
+
+    assert get_models(graph)["rmse"].tolist() == [55.0]
+
+
+def test_get_model_inputs_lists_input_sensors(graph: Graph) -> None:
+    add_power_model(graph)
+    model = model_iri("PowerModel", "KLM", "T01", "baseline")
+
+    assert get_model_inputs(graph, str(model)) == ["wind_speed"]
