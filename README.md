@@ -10,9 +10,9 @@ full specification.
 
 **Status:** milestones §7.1 (scaffold), §7.2 (download), §7.3
 (inspection), §7.4 (load, events, clean), §7.5 (ontology), §7.6–7.7
-(modelling conventions, LightGBM baseline) and the power half of §7.8
-(physics and hybrid power) done. Later milestones add their pipeline steps
-and Makefile targets.
+(modelling conventions, LightGBM baseline) and §7.8 (physics and hybrid
+power, pitch and yaw) done. Later milestones add their pipeline steps and
+Makefile targets.
 
 Code is derived from the Kelmarsh power-performance twin in
 `~/digital-twin-wind-farm`, tag **`v1.0-kelmarsh`** (copied and adapted, not
@@ -74,14 +74,18 @@ components, sensors and Parquet paths through the SPARQL queries in
 the whole file, so steps that add models or alerts must run again after it.
 
 ```bash
-make train        # baseline, physics and hybrid power models (~50 s)
+make train        # power (baseline, physics, hybrid), pitch, yaw (~100 s)
 ```
 
-`make train` writes `expected_power_<variant>` into each turbine Parquet,
-model files under `models/<farm>/` (LightGBM boosters, and the fitted Cp
-curve per turbine type as `power_physics_<model>.json`), the model nodes
-(inputs, target, metrics, `prov:generatedAtTime`) into the graph, and the
-metrics into `models/metrics.json`.
+`make train` writes `expected_power_<variant>` and
+`expected_pitch_<variant>` into each turbine Parquet, model files under
+`models/<farm>/` (LightGBM boosters, the fitted Cp and pitch curves per
+turbine type as `power_physics_<model>.json` and
+`pitch_physics_<model>.json`, and each yaw fit as
+`YawModel_<FARM>_<T>_physics.json`), the model nodes (inputs, target,
+metrics, `prov:generatedAtTime`) into the graph, and the metrics into
+`models/metrics.json`. The yaw step also writes the rolling-window
+misalignment estimates to `data/processed/<farm>/yaw_offsets.parquet`.
 
 Every pipeline script runs standalone with `uv run python -m src.<name>`
 and has a Makefile target (added per milestone).
@@ -238,6 +242,98 @@ residual. Test nRMSE (RMSE / rated power):
   turbines and matches the baseline (better on 6, within 0.3 points
   elsewhere). Within one site the baseline is hard to beat; the physics
   variants are built for transfer (§7.11).
+
+**Pitch models (§7.8):** above rated wind speed (MM92 12 m/s, MM82
+14 m/s) the controller pitches to hold rated power. Physics: mean pitch
+per 0.5 m/s bin of v_n, one curve per turbine type; hybrid: physics plus a
+per-turbine LightGBM residual model (wind speed, ambient temperature, air
+density). Test RMSE in degrees, above rated only:
+
+| Farm | Turbine | Physics | Hybrid | Train rows | Test rows |
+|---|---|---|---|---|---|
+| KLM | T01 | 1.14 | 1.18 | 7,905 | 3,987 |
+| KLM | T02 | 0.99 | 0.99 | 9,275 | 5,014 |
+| KLM | T03 | 0.83 | 0.80 | 6,827 | 3,754 |
+| KLM | T04 | 1.52 | 1.62 | 8,815 | 3,563 |
+| KLM | T05 | 0.82 | 0.83 | 7,142 | 3,953 |
+| KLM | T06 | 1.00 | 1.03 | 4,946 | 2,811 |
+| PEN | T01 | 0.90 | 0.95 | 12,979 | 5,848 |
+| PEN | T02 | 1.05 | 1.04 | 12,192 | 5,417 |
+| PEN | T04 | 0.86 | 0.93 | 11,637 | 5,170 |
+| PEN | T05 | 1.00 | 1.10 | 11,054 | 4,854 |
+| PEN | T06 | 1.01 | 1.11 | 11,501 | 4,622 |
+| PEN | T07 | 1.06 | 1.13 | 8,590 | 3,634 |
+| PEN | T08 | 1.88 | 2.00 | 10,116 | 5,183 |
+| PEN | T09 | 1.05 | 1.15 | 8,141 | 3,482 |
+| PEN | T10 | 1.02 | 1.05 | 8,647 | 3,564 |
+| PEN | T11 | 0.84 | 0.90 | 11,707 | 8,525 |
+| PEN | T12 | 1.04 | 1.13 | 13,956 | 10,863 |
+| PEN | T13 | 0.85 | 0.95 | 14,070 | 10,976 |
+| PEN | T14 | 0.92 | 1.00 | 13,651 | 10,131 |
+| PEN | T15 | 0.95 | 1.04 | 12,698 | 9,544 |
+| **Mean** | KLM | 1.05 | 1.07 | | |
+| **Mean** | PEN | 1.03 | 1.11 | | |
+
+- One binned curve per turbine type predicts pitch to about 1°; the
+  physics model is as good as or better than the hybrid on 17 of 20
+  turbines, so the residual model adds nothing here. With wind direction
+  sin/cos as extra features the hybrid overfitted (PEN T01: 0.64° train,
+  1.34° test), so they were dropped.
+- PEN T08 (1.88°) and KLM T04 (1.52°) stand out; both are candidates for
+  the pitch alerts of §7.10.
+
+**Yaw model (§7.8):** below rated (v_n 5–10 m/s) a turbine misaligned by
+γ to the wind produces about cos^k(γ) of its aligned power. The measured
+misalignment γ is the nacelle vane's relative wind angle, so the power
+ratio to the turbine's own training power curve, binned by γ (1° bins
+within ±25°), peaks at the vane's static offset γ₀: ratio = a·cos^k(γ − γ₀)
+(scipy least squares, bins weighted by their row count). The fit is
+repeated over rolling 90-day windows every 30 days to track drift. An
+offset counts as **identified** only if the mean ratio of the three
+outermost bins on each side lies at least 5 % below the fitted peak, i.e.
+the data really show a peak.
+
+| Farm | Turbine | Static offset γ₀ | k | Peak drop | Identified | Windows: median γ₀ (std) |
+|---|---|---|---|---|---|---|
+| KLM | T01–T06 | +9.1 to +17.8° | 1.3–1.7 | −5.8 to 0.0 % | no | none identified |
+| PEN | T01 | +6.9° | 2.46 | 10.4 % | yes | 6.6° (0.7) |
+| PEN | T02 | +9.4° | 2.34 | 9.0 % | yes | 4.9° (2.4) |
+| PEN | T04 | +4.9° | 2.56 | 12.8 % | yes | 4.5° (0.8) |
+| PEN | T05 | +5.2° | 2.87 | 13.3 % | yes | 5.3° (1.1) |
+| PEN | T06 | +7.1° | 2.63 | 11.1 % | yes | 6.7° (1.2) |
+| PEN | T07 | +6.3° | 2.90 | 12.4 % | yes | 6.2° (0.6) |
+| PEN | T08 | +2.4° | 2.33 | 13.7 % | yes | 2.5° (2.4) |
+| PEN | T09 | +4.0° | 2.80 | 16.9 % | yes | 4.5° (0.9) |
+| PEN | T10 | +5.7° | 2.87 | 14.5 % | yes | 5.8° (1.0) |
+| PEN | T11 | +7.4° | 2.48 | 11.6 % | yes | 7.2° (1.0) |
+| PEN | T12 | +5.5° | 2.83 | 14.4 % | yes | 5.4° (0.7) |
+| PEN | T13 | +3.3° | 2.18 | 12.5 % | yes | 2.8° (0.8) |
+| PEN | T14 | +7.9° | 2.75 | 11.4 % | yes | 7.3° (1.2) |
+| PEN | T15 | +8.9° | 3.01 | 12.9 % | yes | 8.6° (0.7) |
+
+- **Penmanshiel:** every turbine has a clear peak with k = 2.2–3.0, in
+  line with published cos² to cos³ losses. All vanes read 2–9° off in the
+  same direction, so each turbine runs that far misaligned; at k = 2.5 a
+  7° offset costs about 2 % of below-rated power. 62 % of the 1,277
+  rolling windows are identified (short windows often lack data at the
+  edges).
+- **PEN T08:** the window offset drifts from about 5° (2016) to 0° (2020–
+  2021), then jumps to about 10° from mid-2022 (std 2.4°; most turbines
+  0.6–1.2°). The jump follows the end of its underperformance episode
+  (Q4 2021–Q2 2022), which suggests the vane was replaced or recalibrated
+  during that work; the data cannot confirm it. PEN T02 also varies
+  (std 2.4°).
+- **Kelmarsh:** no offset is identified. On every turbine the power
+  ratio keeps rising across the whole ±25° range (e.g. T01: 0.84 at −15°,
+  1.07 at +15°), so the fitted γ₀ (+9 to +18°) is pinned to where the data
+  run out, not a real peak. The asymmetry is the same on all six turbines,
+  which points at the measurement (vane or nacelle anemometer in the rotor
+  wake reacting to misalignment) rather than at six identical offsets.
+  Kelmarsh yaw alerts (§7.10) are therefore not meaningful; the yaw model
+  stays for Penmanshiel.
+- The yaw model's power prediction (power curve × fitted cosine loss) has
+  test nRMSE 2.5–3.6 % on Penmanshiel (T08 6.7 %) and 3.5–4.4 % on
+  Kelmarsh, on 5–10 m/s rows only (not comparable with the power models).
 
 ## Testing and linting
 
@@ -401,7 +497,42 @@ make lint         # uv run ruff check .
   - Shared registration moved to `modelling.py` (`register_model`,
     `metrics_entry`, `model_id_of`); `src/binned.py` holds the method of
     bins for reuse by the pitch model.
-  - Pitch and yaw models (also §7.8) follow in a separate commit.
+- Pitch and yaw (§7.8):
+  - The yaw model is **kept**, although spec §7.8 says to drop it when
+    wind direction is not independent of the nacelle position (it is not:
+    wind direction = nacelle position + vane angle, see Results §7.4).
+    The standard SCADA method needs exactly that relative vane angle: a
+    vane offset shifts the power-vs-misalignment curve, so its peak gives
+    the offset. The method works on Penmanshiel and fails on Kelmarsh,
+    which the `identified` flag reports per turbine and per window
+    (`yaw.edge_bins`, `yaw.min_peak_drop`).
+  - The yaw fit uses `a·cos^k(γ − γ₀)` (spec: `P ∝ cos^k(γ)`): the gain
+    `a` absorbs the level of the power curve and `γ₀` is the static
+    misalignment. Its power reference is the turbine's own binned training
+    power curve on v_n (5–10 m/s, below rated for both turbine types), not
+    the power models, so the yaw step does not depend on them.
+  - Yaw models are registered as `kt:YawModel_<FARM>_<T>_physics` with
+    target `power` (their prediction is power under misalignment) and
+    `kt:modelOf` the yaw system. `models/metrics.json` adds `offset_deg`,
+    `exponent`, `peak_drop` and `identified`; the graph holds the standard
+    metrics only. No `expected_power_physics` column is written for yaw
+    (it would clash with the physics power model's column and covers only
+    5–10 m/s).
+  - Rolling windows (90 days, every 30) go to
+    `data/processed/<farm>/yaw_offsets.parquet` (turbine_id,
+    window_start, window_end, offset_deg, exponent, peak_drop, identified,
+    n); only full windows with at least 8 usable bins are kept. Alerts on
+    drift come in §7.10.
+  - Pitch metrics are in degrees (nRMSE = RMSE, as for temperatures, scale
+    1). Pitch predictions are NaN below rated wind speed (measured wind
+    speed, as in cleaning); the pitch curves are fitted on v_n.
+  - The pitch hybrid has no wind-direction features (they overfitted; see
+    Results). `ResidualModel` (`src/residual.py`) is the shared
+    physics-plus-LightGBM-residual class; `HybridPowerModel` (clips to
+    [0, rated]) and `HybridPitchModel` build on it. It skips rows where
+    the physics model is undefined (NaN).
+  - `config.yaml` gained `yaw` and `models.pitch_physics`,
+    `models.pitch_hybrid`, `models.yaw`.
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

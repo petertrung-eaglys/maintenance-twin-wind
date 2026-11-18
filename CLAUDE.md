@@ -10,8 +10,7 @@ results, limitations and "Deviations from spec". Read both before changing
 behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (inspection; decisions in the README "Data inspection decisions"), §7.4
 (load, events, clean), §7.5 (ontology), §7.6–7.7 (modelling conventions,
-LightGBM power baseline), §7.8 part 1 (physics and hybrid power; pitch and
-yaw still to do).
+LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw).
 
 ## Package management: uv only
 
@@ -28,7 +27,7 @@ make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
 make inspect   # raw structure, column coverage, events (~1 min)
 make data      # load_scada -> events -> clean (~9 min, order matters)
 make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
-make train     # all model variants (so far: power baseline/physics/hybrid)
+make train     # all model variants (so far: power, pitch, yaw)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -67,6 +66,13 @@ Makefile target in its milestone.
 - `src/physics_power.py`: `PhysicsPowerModel` (Cp(v_n) per turbine type,
   aerodynamic bins only, uses each turbine's rotor area) and
   `HybridPowerModel` (physics + LightGBM residual per turbine).
+- `src/residual.py`: `ResidualModel` (base model + LightGBM residual,
+  skips rows where the base is NaN), base of both hybrid models.
+- `src/pitch.py`: `PhysicsPitchModel` (binned pitch(v_n) per turbine type,
+  NaN below rated wind speed), `HybridPitchModel`; metrics in degrees.
+- `src/yaw.py`: `YawModel` (per turbine, `a·cos^k(γ − γ₀)` of the power
+  ratio), `fit_offset`, `peak_drop` (identified flag), `offset_windows` →
+  `data/processed/<farm>/yaw_offsets.parquet`.
 - `src/power_baseline.py`: §7.7 LightGBM baseline; `config.yaml`
   `models.power_baseline` holds inputs, features, target, constraints.
   Model nodes: `graph_utils.add_model` (replaces), `get_models`,
@@ -130,7 +136,13 @@ Makefile target in its milestone.
   transfer between rotor sizes; storm control lowers mean power again at
   high wind, so filtering bins one by one is not enough.
 - Penmanshiel T08 underperforms from 2021 to mid-2022 (partly in the
-  training period): expected, not a bug.
+  training period): expected, not a bug. Its yaw offset jumps from about
+  0° to 10° in mid-2022.
+- Yaw offsets are identifiable on Penmanshiel only: Kelmarsh's power
+  ratio rises across the whole ±25° misalignment range (no peak), so its
+  fits are flagged `identified = False`. Don't "fix" this by widening
+  the bounds.
+- Wind-direction features overfit the pitch hybrid; keep them out.
 - pandas 3: string columns keep NaN (not None) for missing values; parquet
   timestamps may not be ns, so convert with `.to_numpy("datetime64[ns]")`
   before numpy comparisons.

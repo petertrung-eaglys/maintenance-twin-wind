@@ -703,3 +703,27 @@ and the Kelmarsh repo tag the code was derived from.
 - Acceptance: max Cp 0.504 (MM92) and 0.476 (MM82), below Betz; mean test
   nRMSE baseline / physics / hybrid 3.65 / 3.79 / 3.64 % (Kelmarsh) and
   3.02 / 3.50 / 3.18 % (Penmanshiel).
+
+### Milestone 7.8, part 2: pitch and yaw (2026-11-18)
+
+- `src/pitch.py`: `PhysicsPitchModel` (binned pitch(v_n) per turbine type,
+  above rated wind speed only, NaN below) and `HybridPitchModel` (physics
+  + LightGBM residual per turbine, no direction features: they
+  overfitted). Metrics in degrees.
+- `src/yaw.py`: `YawModel` per turbine (training power curve on v_n
+  5–10 m/s, power ratio fitted as `a·cos^k(γ − γ₀)` over 1° misalignment
+  bins), `fit_offset`, `peak_drop` (identifiability: edge bins ≥ 5 % below
+  the fitted peak), `offset_windows` (90-day windows every 30 days →
+  `data/processed/<farm>/yaw_offsets.parquet`).
+- Decision: the yaw model is kept although wind direction = nacelle
+  position + vane angle; the method needs that relative angle (README,
+  "Deviations from spec").
+- Refactor: `src/residual.py` `ResidualModel`, shared by
+  `HybridPowerModel` and `HybridPitchModel`.
+- `config.yaml`: `yaw`, `models.pitch_physics`, `models.pitch_hybrid`,
+  `models.yaw`. `make train` runs `pitch` and `yaw` after the power models.
+- Acceptance: pitch test RMSE about 1° (mean physics / hybrid 1.05 / 1.07°
+  Kelmarsh, 1.03 / 1.11° Penmanshiel); yaw offset identified on all 14
+  Penmanshiel turbines (+2.4 to +9.4°, k 2.2–3.0) and none of the 6
+  Kelmarsh turbines (no peak in the data); PEN T08 offset jumps from about
+  0° to 10° in mid-2022.

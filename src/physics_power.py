@@ -20,7 +20,6 @@ from typing import Any, Self
 
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMRegressor
 from rdflib import Graph
 
 from src.binned import binned_means, interpolate
@@ -37,6 +36,7 @@ from src.modelling import (
     turbine_paths,
     with_turbine_specs,
 )
+from src.residual import ResidualModel
 
 logger = logging.getLogger(__name__)
 
@@ -115,30 +115,17 @@ class PhysicsPowerModel:
         }
 
 
-class HybridPowerModel:
+class HybridPowerModel(ResidualModel):
     """Physics prediction plus a learned residual, clipped to [0, rated]."""
 
     def __init__(
         self, physics: PhysicsPowerModel, spec: dict[str, Any], seed: int
     ) -> None:
-        self.physics = physics
-        self.features: list[str] = spec["features"]
-        self.regressor = LGBMRegressor(
-            **spec["lightgbm"], random_state=seed, verbose=-1
-        )
-
-    def fit(self, train_frames: Mapping[str, pd.DataFrame]) -> Self:
-        """Fit the residual model; the physics model is already fitted."""
-        rows = pd.concat(list(train_frames.values()), ignore_index=True)
-        residual = rows["power"] - self.physics.predict(rows)
-        self.regressor.fit(rows[self.features], residual)
-        return self
+        super().__init__(physics, spec, seed, target="power")
 
     def predict(self, frame: pd.DataFrame) -> np.ndarray:
         """Expected power in kW for every row."""
-        total = self.physics.predict(frame) + self.regressor.predict(
-            frame[self.features]
-        )
+        total = super().predict(frame)
         return np.clip(total, 0, frame["rated_power_kw"].to_numpy())
 
 

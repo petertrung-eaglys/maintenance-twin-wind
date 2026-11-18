@@ -268,6 +268,23 @@ physics:
   max_power_fraction: 0.95
   cut_in_wind_speed: 3.0         # m/s; expected power is 0 outside
   cut_out_wind_speed: 25.0
+yaw:
+  # Static yaw misalignment per turbine (yaw.py): power ratio to the
+  # turbine's training power curve vs measured misalignment, fitted as
+  # a cos^k(gamma - offset). Only below rated, where misalignment costs power.
+  wind_speed_range: [5.0, 10.0]  # m/s, density-normalised
+  max_misalignment_deg: 25.0     # misalignment bins used in the fit
+  bin_width_deg: 1.0
+  min_bin_count: 20
+  min_bins: 8                    # fewer usable bins: no fit
+  # The offset counts as identified only if the mean ratio of the edge_bins
+  # outermost bins on each side is at least min_peak_drop below the fitted
+  # peak (a peak visible in the data). Kelmarsh: <= 0 %, Penmanshiel:
+  # >= 9 % (README).
+  edge_bins: 3
+  min_peak_drop: 0.05
+  window_days: 90                # rolling windows for drift
+  step_days: 30
 models:
   # One entry per model variant. inputs are sensors (graph kt:hasInput);
   # features are the columns the model sees (derived from the inputs).
@@ -298,3 +315,28 @@ models:
     target: power
     lightgbm:
       n_estimators: 300
+  pitch_physics:
+    # binned pitch(v_n) per turbine type, above rated wind speed only
+    model_class: PitchModel
+    component: pitch
+    variant: physics
+    inputs: [wind_speed, ambient_temp]
+    target: pitch
+  pitch_hybrid:
+    # physics prediction + LightGBM model of its residual, per turbine. No
+    # direction features: they overfit (PEN T01 train 0.64 vs test 1.34 deg).
+    model_class: PitchModel
+    component: pitch
+    variant: hybrid
+    inputs: [wind_speed, ambient_temp]
+    features: [wind_speed, ambient_temp, air_density]
+    target: pitch
+    lightgbm:
+      n_estimators: 300
+  yaw:
+    # power under misalignment, a cos^k(gamma - offset) x power curve
+    model_class: YawModel
+    component: yaw
+    variant: physics
+    inputs: [wind_speed, wind_direction, nacelle_direction, ambient_temp]
+    target: power
