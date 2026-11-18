@@ -3,7 +3,7 @@
 Per temperature target: physics (all turbines fitted together, own
 parameters each), PINN (one network for all turbines), and per turbine
 LightGBM-only (`baseline`) and hybrid (physics + LightGBM residual).
-All four are scored on the same test rows: normal, after train_end, target
+All four are scored on the same test rows: normal, after calibration_end, target
 measured and every prediction defined (the physics warm-up is excluded).
 
 Run for selected targets only (others keep their saved models):
@@ -30,6 +30,7 @@ from src.models.modelling import (
     model_id_of,
     prediction_column,
     register_model,
+    split_times,
     turbine_paths,
     with_turbine_specs,
 )
@@ -115,11 +116,12 @@ def training_period(frame: pd.DataFrame, train_end: pd.Timestamp) -> pd.DataFram
 
 
 def scored_rows(
-    frame: pd.DataFrame, target: str, train_end: pd.Timestamp, outputs: dict
+    frame: pd.DataFrame, target: str, test_after: pd.Timestamp, outputs: dict
 ) -> pd.Series:
-    """Normal rows after train_end with the target and every prediction."""
+    """Normal rows after `test_after` (calibration_end) with the target and
+    every prediction."""
     defined = np.isfinite(np.column_stack(list(outputs.values()))).all(1)
-    after = frame["timestamp"] > train_end
+    after = frame["timestamp"] > test_after
     return normal_target_rows(target)(frame) & after & defined
 
 
@@ -135,7 +137,7 @@ def train_target(
     prediction columns per turbine key."""
     thermal, seed = config["thermal"], config["seed"]
     interval = config["sampling"]["interval_minutes"]
-    train_end = pd.Timestamp(config["train_test_split"]["train_end"], tz="UTC")
+    train_end, calibration_end = split_times(config["train_test_split"])
     train = {k: training_period(f, train_end) for k, f in frames.items()}
     features = feature_columns(thermal)
     specs = {
@@ -177,7 +179,7 @@ def train_target(
                 Path(config["paths"]["models"]) / turbine.farm / f"{name}.txt"
             )
             model.regressor.booster_.save_model(files[variant])
-        scored = scored_rows(frame, target, train_end, outputs)
+        scored = scored_rows(frame, target, calibration_end, outputs)
         n_train = int(normal_target_rows(target)(train[key]).sum())
         rmse = {}
         for variant in VARIANTS:

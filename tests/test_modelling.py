@@ -16,6 +16,7 @@ from src.models.modelling import (
     model_id_of,
     prediction_column,
     split_masks,
+    split_times,
     turbine_paths,
     with_turbine_specs,
 )
@@ -47,11 +48,42 @@ def test_split_masks_use_train_end_normal_and_required_columns() -> None:
         }
     )
 
-    train, test = split_masks(frame, "2021-12-31 23:50", ["x"])
+    split = {"train_end": "2021-12-31 23:50", "calibration_end": "2021-12-31 23:50"}
+
+    train, test = split_masks(frame, split, ["x"])
 
     assert (train.tolist(), test.tolist()) == (
         [True, False, False, False],
         [False, False, True, False],
+    )
+
+
+def test_split_masks_leave_the_calibration_period_out() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                ["2020-12-31 23:50", "2021-06-01 00:00", "2022-01-01 00:00"], utc=True
+            ),
+            "is_normal": True,
+            "x": 1.0,
+        }
+    )
+    split = {"train_end": "2020-12-31 23:50", "calibration_end": "2021-12-31 23:50"}
+
+    train, test = split_masks(frame, split, ["x"])
+
+    assert (train.tolist(), test.tolist()) == (
+        [True, False, False],
+        [False, False, True],
+    )
+
+
+def test_split_times_are_utc_timestamps() -> None:
+    split = {"train_end": "2020-12-31 23:50", "calibration_end": "2021-12-31 23:50"}
+
+    assert split_times(split) == (
+        pd.Timestamp("2020-12-31 23:50", tz="UTC"),
+        pd.Timestamp("2021-12-31 23:50", tz="UTC"),
     )
 
 

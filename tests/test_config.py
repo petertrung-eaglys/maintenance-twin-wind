@@ -131,8 +131,13 @@ def test_shipped_fault_labels_map_each_message_to_one_component() -> None:
     )
 
 
-def test_shipped_config_trains_up_to_end_of_2021() -> None:
-    assert load_config()["train_test_split"]["train_end"] == "2021-12-31 23:50"
+def test_shipped_config_trains_to_2020_and_calibrates_on_2021() -> None:
+    split = load_config()["train_test_split"]
+
+    assert split == {
+        "train_end": "2020-12-31 23:50",
+        "calibration_end": "2021-12-31 23:50",
+    }
 
 
 def test_every_lightgbm_model_uses_the_configured_threads() -> None:

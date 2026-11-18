@@ -11,8 +11,9 @@ full specification.
 **Status:** milestones §7.1 (scaffold), §7.2 (download), §7.3
 (inspection), §7.4 (load, events, clean), §7.5 (ontology), §7.6–7.7
 (modelling conventions, LightGBM baseline), §7.8 (physics and hybrid
-power, pitch and yaw) and §7.9 (thermal models) done. Later milestones add their pipeline steps and
-Makefile targets.
+power, pitch and yaw), §7.9 (thermal models) and §7.10 (alerts and
+evaluation) done. Later milestones add their pipeline steps and Makefile
+targets.
 
 Code is derived from the Kelmarsh power-performance twin in
 `~/digital-twin-wind-farm`, tag **`v1.0-kelmarsh`** (copied and adapted, not
@@ -99,6 +100,19 @@ selected temperatures only (the others keep their saved models):
 uv run python -m src.models.thermal.train --targets front_bearing_temp
 ```
 
+```bash
+make alerts       # residual alerts for every model -> graph (~15 s)
+make evaluate     # match alerts to fault events (~15 s)
+```
+
+`make alerts` replaces each model's `kt:Alert` nodes in the graph and
+writes `models/alerts.json` (threshold, alert count and yearly mean
+residual score per model). `make evaluate` links alerts to the fault
+events they precede (`kt:precedes`, `kt:leadTimeHours`), prints the
+summary per farm, component, target and variant, and writes
+`models/evaluation.json` (summary, episode counts, drift table). Run both
+after `make train`.
+
 Every pipeline script runs standalone with
 `uv run python -m src.<package>.<name>` and has a Makefile target (added
 per milestone). `src/` is grouped by concern: `data/` (raw files to clean
@@ -153,7 +167,7 @@ From `make inspect` on both farms:
 
 **Data and cleaning (§7.4):**
 
-| Farm | Turbines | Rows | Normal | Normal rows train / test |
+| Farm | Turbines | Rows | Normal | Normal rows 2016–2021 / 2022–2024 |
 |---|---|---|---|---|
 | Kelmarsh | 6 | 2,839,104 (473,184 each) | 78.5 % (75.6–80.6 %) | 1,464,798 / 762,653 |
 | Penmanshiel | 14 | 5,758,976 (386k–447k each) | 76.3 % (71.9–79.6 %) | 3,085,057 / 1,309,634 |
@@ -182,80 +196,89 @@ matched to their farm's signal mapping), 1,043 fault events, and the
 provenance of 429 source files (33 downloads, 198 turbine data files, 198
 status files), each raw file `kt:partOf` the zip it was extracted from.
 
-**Baseline power model (§7.7):** LightGBM per turbine, trained on normal
-rows of 2016–2021, tested on normal rows of 2022–2024 (rated power
+All models below fit normal rows of **2016–2020**; 2021 is the calibration
+year for alert thresholds (§7.10; no model sees it) and the test period is
+2022–2024 (Penmanshiel T01–T10 end in 2023). The models were retrained when
+§7.10 introduced the calibration year; until then they fit 2016–2021.
+
+**Baseline power model (§7.7):** LightGBM per turbine (rated power
 2,050 kW for every turbine; nRMSE = RMSE / rated power):
 
 | Farm | Turbine | RMSE (kW) | nRMSE | MAE (kW) | Train rows | Test rows |
 |---|---|---|---|---|---|---|
-| KLM | T01 | 74.6 | 3.64 % | 50.1 | 245,216 | 130,349 |
-| KLM | T02 | 73.5 | 3.59 % | 52.1 | 249,019 | 132,271 |
-| KLM | T03 | 68.5 | 3.34 % | 48.8 | 243,584 | 129,538 |
-| KLM | T04 | 93.4 | 4.55 % | 56.2 | 249,542 | 121,104 |
-| KLM | T05 | 73.0 | 3.56 % | 51.3 | 241,994 | 126,964 |
-| KLM | T06 | 65.7 | 3.20 % | 46.7 | 235,443 | 122,427 |
-| PEN | T01 | 50.6 | 2.47 % | 35.1 | 222,905 | 80,367 |
-| PEN | T02 | 57.5 | 2.81 % | 39.6 | 218,489 | 78,421 |
-| PEN | T04 | 55.5 | 2.71 % | 38.9 | 221,197 | 75,875 |
-| PEN | T05 | 57.4 | 2.80 % | 39.7 | 218,701 | 75,856 |
-| PEN | T06 | 53.8 | 2.62 % | 37.6 | 215,018 | 73,612 |
-| PEN | T07 | 52.5 | 2.56 % | 36.6 | 209,781 | 73,546 |
-| PEN | T08 | 133.8 | 6.53 % | 82.7 | 219,439 | 79,029 |
-| PEN | T09 | 53.8 | 2.62 % | 36.1 | 212,530 | 75,451 |
-| PEN | T10 | 54.0 | 2.64 % | 37.4 | 211,743 | 69,523 |
-| PEN | T11 | 61.0 | 2.98 % | 41.1 | 223,968 | 120,896 |
-| PEN | T12 | 63.1 | 3.08 % | 43.6 | 228,034 | 126,893 |
-| PEN | T13 | 51.4 | 2.51 % | 34.9 | 228,348 | 127,846 |
-| PEN | T14 | 60.0 | 2.93 % | 42.2 | 226,950 | 126,738 |
-| PEN | T15 | 61.4 | 2.99 % | 42.8 | 227,954 | 125,581 |
+| KLM | T01 | 76.5 | 3.73 % | 51.4 | 204,621 | 130,349 |
+| KLM | T02 | 72.4 | 3.53 % | 51.3 | 207,544 | 132,271 |
+| KLM | T03 | 69.2 | 3.38 % | 49.3 | 202,478 | 129,538 |
+| KLM | T04 | 93.4 | 4.56 % | 56.2 | 207,125 | 121,104 |
+| KLM | T05 | 73.1 | 3.57 % | 51.4 | 203,444 | 126,964 |
+| KLM | T06 | 66.1 | 3.22 % | 47.1 | 198,315 | 122,427 |
+| PEN | T01 | 52.9 | 2.58 % | 35.4 | 183,500 | 80,367 |
+| PEN | T02 | 57.9 | 2.83 % | 38.8 | 179,735 | 78,421 |
+| PEN | T04 | 56.7 | 2.77 % | 39.2 | 182,703 | 75,875 |
+| PEN | T05 | 58.6 | 2.86 % | 40.2 | 180,608 | 75,856 |
+| PEN | T06 | 54.6 | 2.66 % | 37.9 | 177,259 | 73,612 |
+| PEN | T07 | 53.6 | 2.61 % | 36.9 | 173,775 | 73,546 |
+| PEN | T08 | 145.4 | 7.09 % | 88.6 | 181,932 | 79,029 |
+| PEN | T09 | 56.8 | 2.77 % | 36.6 | 175,605 | 75,451 |
+| PEN | T10 | 55.8 | 2.72 % | 37.7 | 174,757 | 69,523 |
+| PEN | T11 | 62.1 | 3.03 % | 41.5 | 185,365 | 120,896 |
+| PEN | T12 | 64.2 | 3.13 % | 44.1 | 188,050 | 126,893 |
+| PEN | T13 | 53.4 | 2.60 % | 35.7 | 188,641 | 127,846 |
+| PEN | T14 | 61.3 | 2.99 % | 42.4 | 187,014 | 126,738 |
+| PEN | T15 | 64.1 | 3.12 % | 43.3 | 188,048 | 125,581 |
 
-- Kelmarsh MAE (46.7–56.2 kW) matches the Kelmarsh repo (47.3–56.7 kW)
-  despite the added monotone constraint and the stricter cleaning.
+- Kelmarsh MAE (47.1–56.2 kW) matches the Kelmarsh repo (47.3–56.7 kW)
+  despite the added monotone constraint, the stricter cleaning and one
+  training year less.
 - **Penmanshiel T08** underperforms for months: its quarterly mean
-  normal-row residual is −62 and −44 kW in H1 2021, −119 kW in Q4 2021 and
-  about −193 kW in Q1–Q2 2022, then back within ±15 kW from Q3 2022. Part
-  of the episode lies in the training period, so this healthy-only model
-  learned from some degraded rows; it is a case study for §7.10–7.12.
+  normal-row residual (model trained on 2016–2021) was −62 and −44 kW in
+  H1 2021, −119 kW in Q4 2021 and about −193 kW in Q1–Q2 2022, then back
+  within ±15 kW from Q3 2022. With 2021 out of the training data its test
+  nRMSE rose from 6.53 % to 7.09 %: the model no longer learns from
+  degraded rows. A case study for §7.10–7.12.
 
 **Physics and hybrid power models (§7.8):** the physics model is one
 power-coefficient curve Cp(v_n) per turbine type (method of bins on
 density-normalised wind speed, 0.5 m/s bins), giving P = ½ ρ₀ A Cp(v_n)
 v_n³ with each turbine's rotor area, capped at rated power. Fitted
-maximum Cp: **0.504 (MM92)** and **0.476 (MM82)**, both below the Betz
+maximum Cp: **0.502 (MM92)** and **0.477 (MM82)**, both below the Betz
 limit 0.593 (nacelle anemometers behind the rotor read low, which raises
-apparent Cp). The hybrid adds a per-turbine LightGBM model of the physics
-residual. Test nRMSE (RMSE / rated power):
+apparent Cp); the curves end at 10.7 m/s (MM92) and 12.7 m/s (MM82). The
+hybrid adds a per-turbine LightGBM model of the physics residual. Test
+nRMSE (RMSE / rated power):
 
 | Farm | Turbine | Baseline | Physics | Hybrid |
 |---|---|---|---|---|
-| KLM | T01 | 3.64 % | 3.75 % | 3.65 % |
-| KLM | T02 | 3.59 % | 3.69 % | 3.58 % |
-| KLM | T03 | 3.34 % | 3.62 % | 3.31 % |
-| KLM | T04 | 4.55 % | 4.56 % | 4.54 % |
-| KLM | T05 | 3.56 % | 3.87 % | 3.54 % |
-| KLM | T06 | 3.20 % | 3.26 % | 3.22 % |
-| PEN | T01 | 2.47 % | 2.87 % | 2.76 % |
-| PEN | T02 | 2.81 % | 3.22 % | 3.16 % |
-| PEN | T04 | 2.71 % | 3.21 % | 3.01 % |
-| PEN | T05 | 2.80 % | 3.45 % | 3.13 % |
-| PEN | T06 | 2.62 % | 3.07 % | 2.83 % |
-| PEN | T07 | 2.56 % | 2.91 % | 2.56 % |
-| PEN | T08 | 6.53 % | 6.62 % | 6.60 % |
-| PEN | T09 | 2.62 % | 2.97 % | 2.63 % |
-| PEN | T10 | 2.64 % | 3.42 % | 2.60 % |
-| PEN | T11 | 2.98 % | 3.58 % | 2.91 % |
-| PEN | T12 | 3.08 % | 3.54 % | 3.19 % |
-| PEN | T13 | 2.51 % | 2.91 % | 2.83 % |
-| PEN | T14 | 2.93 % | 3.44 % | 3.14 % |
-| PEN | T15 | 2.99 % | 3.85 % | 3.22 % |
-| **Mean** | KLM | 3.65 % | 3.79 % | 3.64 % |
-| **Mean** | PEN | 3.02 % | 3.50 % | 3.18 % |
+| KLM | T01 | 3.73 % | 3.77 % | 3.75 % |
+| KLM | T02 | 3.53 % | 3.68 % | 3.52 % |
+| KLM | T03 | 3.38 % | 3.65 % | 3.35 % |
+| KLM | T04 | 4.56 % | 4.57 % | 4.54 % |
+| KLM | T05 | 3.57 % | 3.91 % | 3.54 % |
+| KLM | T06 | 3.22 % | 3.27 % | 3.25 % |
+| PEN | T01 | 2.58 % | 2.89 % | 2.77 % |
+| PEN | T02 | 2.83 % | 3.26 % | 3.34 % |
+| PEN | T04 | 2.77 % | 3.18 % | 3.13 % |
+| PEN | T05 | 2.86 % | 3.49 % | 3.26 % |
+| PEN | T06 | 2.66 % | 3.05 % | 2.90 % |
+| PEN | T07 | 2.61 % | 2.93 % | 2.64 % |
+| PEN | T08 | 7.09 % | 6.67 % | 7.15 % |
+| PEN | T09 | 2.77 % | 2.98 % | 2.63 % |
+| PEN | T10 | 2.72 % | 3.47 % | 2.63 % |
+| PEN | T11 | 3.03 % | 3.61 % | 2.93 % |
+| PEN | T12 | 3.13 % | 3.55 % | 3.22 % |
+| PEN | T13 | 2.60 % | 2.92 % | 2.89 % |
+| PEN | T14 | 2.99 % | 3.43 % | 3.11 % |
+| PEN | T15 | 3.12 % | 3.83 % | 3.29 % |
+| **Mean** | KLM | 3.66 % | 3.96 % | 3.66 % |
+| **Mean** | PEN | 3.13 % | 3.37 % | 3.28 % |
 
-- One physics curve per turbine type is within 0.1–0.8 percentage points
-  of a per-turbine LightGBM model. The hybrid beats physics on all 20
-  turbines and matches the baseline (better on 6, within 0.3 points
-  elsewhere). Within one site the baseline is hard to beat; the physics
-  variants are built for transfer (§7.11).
+- One physics curve per turbine type is within 0.1–0.7 percentage points
+  of a per-turbine LightGBM model, and better than it on PEN T08 (6.67 vs
+  7.09 %): a curve shared by 14 turbines is not pulled by one turbine's
+  history. The hybrid beats physics on 18 of 20 turbines and matches the
+  baseline (better on 7, at most 0.5 points worse). Within one site the
+  baseline is hard to beat; the physics variants are built for transfer
+  (§7.11).
 
 **Pitch models (§7.8):** above rated wind speed (MM92 12 m/s, MM82
 14 m/s) the controller pitches to hold rated power. Physics: mean pitch
@@ -265,36 +288,35 @@ density). Test RMSE in degrees, above rated only:
 
 | Farm | Turbine | Physics | Hybrid | Train rows | Test rows |
 |---|---|---|---|---|---|
-| KLM | T01 | 1.14 | 1.18 | 7,905 | 3,987 |
-| KLM | T02 | 0.99 | 0.99 | 9,275 | 5,014 |
-| KLM | T03 | 0.83 | 0.80 | 6,827 | 3,754 |
-| KLM | T04 | 1.52 | 1.62 | 8,815 | 3,563 |
-| KLM | T05 | 0.82 | 0.83 | 7,142 | 3,953 |
-| KLM | T06 | 1.00 | 1.03 | 4,946 | 2,811 |
-| PEN | T01 | 0.90 | 0.95 | 12,979 | 5,848 |
-| PEN | T02 | 1.05 | 1.04 | 12,192 | 5,417 |
-| PEN | T04 | 0.86 | 0.93 | 11,637 | 5,170 |
-| PEN | T05 | 1.00 | 1.10 | 11,054 | 4,854 |
-| PEN | T06 | 1.01 | 1.11 | 11,501 | 4,622 |
-| PEN | T07 | 1.06 | 1.13 | 8,590 | 3,634 |
-| PEN | T08 | 1.88 | 2.00 | 10,116 | 5,183 |
-| PEN | T09 | 1.05 | 1.15 | 8,141 | 3,482 |
-| PEN | T10 | 1.02 | 1.05 | 8,647 | 3,564 |
-| PEN | T11 | 0.84 | 0.90 | 11,707 | 8,525 |
-| PEN | T12 | 1.04 | 1.13 | 13,956 | 10,863 |
-| PEN | T13 | 0.85 | 0.95 | 14,070 | 10,976 |
-| PEN | T14 | 0.92 | 1.00 | 13,651 | 10,131 |
-| PEN | T15 | 0.95 | 1.04 | 12,698 | 9,544 |
-| **Mean** | KLM | 1.05 | 1.07 | | |
-| **Mean** | PEN | 1.03 | 1.11 | | |
+| KLM | T01 | 1.14 | 1.18 | 6,706 | 3,987 |
+| KLM | T02 | 0.99 | 0.99 | 7,612 | 5,014 |
+| KLM | T03 | 0.84 | 0.82 | 5,600 | 3,754 |
+| KLM | T04 | 1.52 | 1.59 | 7,198 | 3,563 |
+| KLM | T05 | 0.82 | 0.84 | 5,980 | 3,953 |
+| KLM | T06 | 1.00 | 1.03 | 4,205 | 2,811 |
+| PEN | T01 | 0.91 | 0.96 | 10,222 | 5,848 |
+| PEN | T02 | 1.08 | 1.09 | 9,216 | 5,417 |
+| PEN | T04 | 0.86 | 0.96 | 9,260 | 5,170 |
+| PEN | T05 | 1.01 | 1.21 | 8,758 | 4,854 |
+| PEN | T06 | 1.01 | 1.14 | 9,138 | 4,622 |
+| PEN | T07 | 1.07 | 1.19 | 6,814 | 3,634 |
+| PEN | T08 | 1.91 | 2.20 | 7,530 | 5,183 |
+| PEN | T09 | 1.06 | 1.22 | 6,425 | 3,482 |
+| PEN | T10 | 1.04 | 1.19 | 6,834 | 3,564 |
+| PEN | T11 | 0.86 | 0.93 | 9,272 | 8,525 |
+| PEN | T12 | 1.05 | 1.20 | 11,018 | 10,863 |
+| PEN | T13 | 0.85 | 0.99 | 11,131 | 10,976 |
+| PEN | T14 | 0.92 | 1.07 | 10,929 | 10,131 |
+| PEN | T15 | 0.95 | 1.08 | 10,068 | 9,544 |
+| **Mean** | KLM | 1.05 | 1.08 | | |
+| **Mean** | PEN | 1.04 | 1.17 | | |
 
 - One binned curve per turbine type predicts pitch to about 1°; the
-  physics model is as good as or better than the hybrid on 17 of 20
+  physics model is as good as or better than the hybrid on 18 of 20
   turbines, so the residual model adds nothing here. With wind direction
   sin/cos as extra features the hybrid overfitted (PEN T01: 0.64° train,
   1.34° test), so they were dropped.
-- PEN T08 (1.88°) and KLM T04 (1.52°) stand out; both are candidates for
-  the pitch alerts of §7.10.
+- PEN T08 (1.91°) and KLM T04 (1.52°) stand out.
 
 **Yaw model (§7.8):** below rated (v_n 5–10 m/s) a turbine misaligned by
 γ to the wind produces about cos^k(γ) of its aligned power. The measured
@@ -309,44 +331,44 @@ the data really show a peak.
 
 | Farm | Turbine | Static offset γ₀ | k | Peak drop | Identified | Windows: median γ₀ (std) |
 |---|---|---|---|---|---|---|
-| KLM | T01–T06 | +9.1 to +17.8° | 1.3–1.7 | −5.8 to 0.0 % | no | none identified |
-| PEN | T01 | +6.9° | 2.46 | 10.4 % | yes | 6.6° (0.7) |
-| PEN | T02 | +9.4° | 2.34 | 9.0 % | yes | 4.9° (2.4) |
-| PEN | T04 | +4.9° | 2.56 | 12.8 % | yes | 4.5° (0.8) |
-| PEN | T05 | +5.2° | 2.87 | 13.3 % | yes | 5.3° (1.1) |
-| PEN | T06 | +7.1° | 2.63 | 11.1 % | yes | 6.7° (1.2) |
-| PEN | T07 | +6.3° | 2.90 | 12.4 % | yes | 6.2° (0.6) |
-| PEN | T08 | +2.4° | 2.33 | 13.7 % | yes | 2.5° (2.4) |
-| PEN | T09 | +4.0° | 2.80 | 16.9 % | yes | 4.5° (0.9) |
-| PEN | T10 | +5.7° | 2.87 | 14.5 % | yes | 5.8° (1.0) |
-| PEN | T11 | +7.4° | 2.48 | 11.6 % | yes | 7.2° (1.0) |
-| PEN | T12 | +5.5° | 2.83 | 14.4 % | yes | 5.4° (0.7) |
-| PEN | T13 | +3.3° | 2.18 | 12.5 % | yes | 2.8° (0.8) |
-| PEN | T14 | +7.9° | 2.75 | 11.4 % | yes | 7.3° (1.2) |
-| PEN | T15 | +8.9° | 3.01 | 12.9 % | yes | 8.6° (0.7) |
+| KLM | T01–T06 | +8.6 to +17.4° | 1.3–1.8 | −6.5 to −0.7 % | no | none identified |
+| PEN | T01 | +7.1° | 2.30 | 9.4 % | yes | 6.6° (0.7) |
+| PEN | T02 | +8.9° | 2.37 | 9.6 % | yes | 7.1° (2.3) |
+| PEN | T04 | +5.1° | 2.40 | 12.0 % | yes | 4.5° (0.8) |
+| PEN | T05 | +5.3° | 2.70 | 11.9 % | yes | 5.3° (1.1) |
+| PEN | T06 | +7.3° | 2.46 | 10.0 % | yes | 6.8° (1.2) |
+| PEN | T07 | +6.4° | 2.72 | 11.1 % | yes | 6.2° (0.6) |
+| PEN | T08 | +2.2° | 2.44 | 14.8 % | yes | 2.2° (2.3) |
+| PEN | T09 | +4.1° | 2.67 | 16.0 % | yes | 4.6° (0.9) |
+| PEN | T10 | +5.9° | 2.67 | 13.4 % | yes | 5.8° (1.0) |
+| PEN | T11 | +7.6° | 2.34 | 11.0 % | yes | 7.3° (1.0) |
+| PEN | T12 | +5.6° | 2.68 | 13.4 % | yes | 5.4° (0.7) |
+| PEN | T13 | +3.4° | 2.05 | 11.5 % | yes | 2.8° (0.8) |
+| PEN | T14 | +8.2° | 2.57 | 10.7 % | yes | 7.4° (1.2) |
+| PEN | T15 | +9.2° | 2.82 | 11.9 % | yes | 8.7° (0.7) |
 
-- **Penmanshiel:** every turbine has a clear peak with k = 2.2–3.0, in
+- **Penmanshiel:** every turbine has a clear peak with k = 2.0–2.8, in
   line with published cos² to cos³ losses. All vanes read 2–9° off in the
   same direction, so each turbine runs that far misaligned; at k = 2.5 a
-  7° offset costs about 2 % of below-rated power. 62 % of the 1,277
+  7° offset costs about 2 % of below-rated power. 63 % of the 1,277
   rolling windows are identified (short windows often lack data at the
   edges).
 - **PEN T08:** the window offset drifts from about 5° (2016) to 0° (2020–
-  2021), then jumps to about 10° from mid-2022 (std 2.4°; most turbines
+  2021), then jumps to about 10° from mid-2022 (std 2.3°; most turbines
   0.6–1.2°). The jump follows the end of its underperformance episode
   (Q4 2021–Q2 2022), which suggests the vane was replaced or recalibrated
   during that work; the data cannot confirm it. PEN T02 also varies
-  (std 2.4°).
+  (std 2.3°).
 - **Kelmarsh:** no offset is identified. On every turbine the power
   ratio keeps rising across the whole ±25° range (e.g. T01: 0.84 at −15°,
-  1.07 at +15°), so the fitted γ₀ (+9 to +18°) is pinned to where the data
+  1.07 at +15°), so the fitted γ₀ (+9 to +17°) is pinned to where the data
   run out, not a real peak. The asymmetry is the same on all six turbines,
   which points at the measurement (vane or nacelle anemometer in the rotor
   wake reacting to misalignment) rather than at six identical offsets.
-  Kelmarsh yaw alerts (§7.10) are therefore not meaningful; the yaw model
-  stays for Penmanshiel.
+  Kelmarsh therefore gets no yaw alerts; the yaw model stays for
+  Penmanshiel.
 - The yaw model's power prediction (power curve × fitted cosine loss) has
-  test nRMSE 2.5–3.6 % on Penmanshiel (T08 6.7 %) and 3.5–4.4 % on
+  test nRMSE 2.4–3.6 % on Penmanshiel (T08 7.2 %) and 3.6–4.4 % on
   Kelmarsh, on 5–10 m/s rows only (not comparable with the power models).
 
 **Thermal models (§7.9):** 7 temperatures (gear oil and gear-oil inlet;
@@ -376,42 +398,112 @@ Mean test RMSE (°C, 2022–2024; all variants scored on the same normal rows,
 
 | Temperature | Farm | Physics | Baseline | Hybrid | PINN |
 |---|---|---|---|---|---|
-| Gear oil | KLM | 3.92 | **1.62** | 1.62 | 1.63 |
-| Gear oil | PEN | 4.22 | **1.41** | 1.42 | 1.42 |
-| Gear-oil inlet | KLM | 6.07 | 3.64 | 3.65 | **3.61** |
-| Gear-oil inlet | PEN | 7.73 | 5.20 | 5.24 | **5.18** |
-| Generator bearing front | KLM | 3.95 | 2.17 | 2.19 | **2.12** |
-| Generator bearing front | PEN | 4.39 | 3.35 | 3.38 | **3.16** |
-| Generator bearing rear | KLM | 3.12 | 2.50 | 2.51 | **2.39** |
-| Generator bearing rear | PEN | 2.80 | 1.79 | 1.82 | **1.68** |
-| Stator | KLM | 4.90 | 1.62 | 1.64 | **1.61** |
-| Stator | PEN | 5.54 | 1.93 | 1.96 | **1.93** |
-| Main bearing front | KLM | 4.71 | **1.53** | 1.55 | 1.61 |
-| Main bearing front | PEN | 4.46 | **1.89** | 1.90 | 1.92 |
-| Main bearing rear | KLM | 4.45 | **2.12** | 2.14 | 2.17 |
-| Main bearing rear | PEN | 4.59 | **2.01** | 2.02 | 2.03 |
-| **Mean** | both | 4.71 | 2.41 | 2.43 | **2.38** |
+| Gear oil | KLM | 3.92 | **1.62** | 1.63 | 1.63 |
+| Gear oil | PEN | 4.22 | 1.48 | 1.49 | **1.46** |
+| Gear-oil inlet | KLM | 6.07 | 3.67 | 3.69 | **3.65** |
+| Gear-oil inlet | PEN | 7.81 | 5.38 | 5.41 | **5.32** |
+| Generator bearing front | KLM | 3.97 | 2.19 | 2.21 | **2.12** |
+| Generator bearing front | PEN | 4.37 | 3.31 | 3.34 | **3.16** |
+| Generator bearing rear | KLM | 3.19 | 2.56 | 2.57 | **2.41** |
+| Generator bearing rear | PEN | 2.82 | 1.79 | 1.82 | **1.69** |
+| Stator | KLM | 4.92 | 1.63 | 1.66 | **1.62** |
+| Stator | PEN | 5.57 | 1.95 | 1.98 | **1.94** |
+| Main bearing front | KLM | 4.73 | **1.54** | 1.56 | 1.59 |
+| Main bearing front | PEN | 4.49 | **2.04** | 2.06 | 2.06 |
+| Main bearing rear | KLM | 4.49 | **2.13** | 2.15 | 2.16 |
+| Main bearing rear | PEN | 4.56 | **2.11** | 2.13 | 2.12 |
+| **Mean** | both | 4.73 | 2.46 | 2.49 | **2.42** |
 
-- The PINN is best on 78 of 140 turbine-temperature pairs (baseline 54,
-  hybrid 8); baseline, hybrid and PINN are within 0.05 °C of each other
-  except on the generator bearings, where the PINN gains up to 0.2 °C.
-  Which variant detects faults best is decided in §7.10.
+- The PINN is best on 92 of 140 turbine-temperature pairs (baseline 43,
+  hybrid 5); baseline, hybrid and PINN are within 0.06 °C of each other
+  except on the generator bearings, where the PINN gains up to 0.15 °C.
 - The physics model is 1–3 °C worse: most of these temperatures are
   actively regulated (gear oil stays at 51–57 °C at any power; the
   gear-oil inlet and front generator bearing get **cooler** as power rises
   because coolers and fans engage), which one heat balance cannot follow.
   Its parameters are plausible: time constants of 3–7 h at standstill,
-  cooling 20–40 % stronger at full rotor speed.
+  cooling 20–40 % stronger at full rotor speed (fit on 2016–2021).
 - The gear-oil inlet is the hardest signal for every variant (it switches
   with the oil cooler).
-- PINN λ (stator, 10,000 steps): 0 and 0.01 give the same test RMSE (1.61
-  / 1.91 °C), but 0.01 cuts the network's ODE residual from 25.5 to
-  6.5 °C/h, i.e. its predictions stop jumping between 10-minute steps;
-  λ = 1 and 10 cost 1.1–1.3 and 2.1–2.6 °C of RMSE, because the lumped heat
-  balance itself is only accurate to about 5 °C.
+- PINN λ (stator, 10,000 steps, fit on 2016–2021): 0 and 0.01 give the
+  same test RMSE (1.61 / 1.91 °C), but 0.01 cuts the network's ODE
+  residual from 25.5 to 6.5 °C/h, i.e. its predictions stop jumping
+  between 10-minute steps; λ = 1 and 10 cost 1.1–1.3 and 2.1–2.6 °C of
+  RMSE, because the lumped heat balance itself is only accurate to about
+  5 °C.
 - The thermal step takes about 2 minutes per temperature (physics and PINN
   on the GPU, LightGBM on 8 threads); system memory rose from about 5 to
   10 GB while it ran.
+
+**Alerts and evaluation (§7.10):** for every power, pitch and thermal
+model, residual = measured − expected on normal rows, a 24 h rolling mean
+(at least 6 h of rows), turned into a problem score (low power, high
+temperature, either side for pitch). Threshold: the 99.5th percentile of
+the score in the calibration year 2021. Exceedances of at least 6 h are
+alerts, and a model's alerts less than 7 days apart are merged. Yaw models
+alert when an identified window offset drifts more than 4° from the
+static offset. Evaluation (test period 2022+): fault events of one turbine
+and component less than 7 days apart are one episode; an episode is
+**detected** when an alert of the same turbine and component starts at
+most 30 days before it. **Chance** is what alerts at the same rate, placed
+at random, would detect (1 − e^(−rate·30 days)).
+
+Test-period episodes: Kelmarsh gearbox 8, pitch 9, yaw 5 (no generator
+events); Penmanshiel gearbox 111 (from 288 events), generator 13, pitch
+22, yaw 5. There are no main-bearing events. 5,883 alerts after
+train_end (Kelmarsh 2,529, Penmanshiel 3,354); 158 test alerts precede an
+episode (`kt:precedes`).
+
+| Farm | Model (component) | Variant | Detected | Rate | Chance | Median lead | False alarms / turbine-year |
+|---|---|---|---|---|---|---|---|
+| KLM | gear oil (gearbox) | physics | 0/8 | 0.00 | 0.14 | – | 0.8 |
+| KLM | gear oil (gearbox) | baseline | 4/8 | 0.50 | 0.44 | 8.7 d | 7.8 |
+| KLM | gear oil (gearbox) | hybrid | 3/8 | 0.38 | 0.41 | 15.9 d | 6.7 |
+| KLM | gear oil (gearbox) | pinn | 3/8 | 0.38 | 0.49 | 15.9 d | 8.9 |
+| KLM | gear-oil inlet (gearbox) | pinn | 4/8 | 0.50 | 0.33 | 19.1 d | 3.8 |
+| PEN | gear oil (gearbox) | physics | 0/111 | 0.00 | 0.01 | – | 0.2 |
+| PEN | gear oil (gearbox) | baseline | 36/111 | 0.32 | 0.35 | 17.9 d | 4.1 |
+| PEN | gear oil (gearbox) | hybrid | 36/111 | 0.32 | 0.30 | 16.9 d | 3.1 |
+| PEN | gear oil (gearbox) | pinn | 41/111 | 0.37 | 0.36 | 16.9 d | 4.2 |
+| PEN | power (generator) | physics | 3/13 | 0.23 | 0.32 | 13.2 d | 1.9 |
+| PEN | power (generator) | baseline | 2/13 | 0.15 | 0.33 | 13.5 d | 2.2 |
+| PEN | stator (generator) | all | 0/13 | 0.00 | 0.05–0.10 | – | 0.9–2.7 |
+| both | pitch | physics, hybrid | 0/31 | 0.00 | ≤ 0.04 | – | ≤ 0.5 |
+| PEN | yaw | physics | 0/5 | 0.00 | 0.03 | – | 0.1 |
+
+The full table (every farm, component, temperature and variant) is printed
+by `make evaluate` and stored in `models/evaluation.json`.
+
+- **Event-timed detection is at chance level for every model.** Where a
+  variant detects more episodes, it also raises more alerts, and random
+  alerts at that rate would detect as many. The few rates above chance
+  (KLM gear-oil inlet PINN 4/8 vs 0.33) rest on 8 episodes. The labelled
+  events are mostly stops such as "Missing gear oil" (Penmanshiel), pitch
+  and yaw faults; in 10-minute SCADA data they are not preceded by a
+  24-hour temperature or power anomaly that these models can see.
+- **The physics models barely alert** (0.2–1 false alarm per turbine-year
+  for gear oil): their errors are wide, so the 99.5th-percentile threshold
+  sits at a median 8.7 °C (gear oil 6.6–10.4 °C). The ML thresholds have a
+  median of 2.4–2.7 °C (about 1 °C for gear oil), so the ML models react to
+  small, slow changes, which makes them both noisier and more sensitive.
+- **Slow drift is the real signal.** The drift KPI (each year's mean
+  problem score minus 2021's, in `evaluation.json`) finds changes that the
+  event matching cannot credit, and all four variants agree on them,
+  physics included:
+  - KLM T04 gear oil: +1.1 °C (2023) and +1.7 °C (2024) on the yearly
+    mean; above 500 kW the measured temperature rose from about 50 to
+    54–56 °C while the expected value stayed at 50.7 °C. KLM T04 has the
+    most gearbox events of Kelmarsh in the test period.
+  - KLM T06 gear-oil inlet +2.3 °C (2023–2024); KLM T01 front generator
+    bearing +2.1 °C (2024); KLM T02 rear generator bearing +2.3 °C in 2022,
+    back to +0.3 °C afterwards.
+  - Power: KLM T02 produces 37–50 kW less than in 2021 (2022–2024, all
+    three variants); PEN T08 32 kW less in 2022, then 65 kW more in 2023
+    (the end of its underperformance episode; 2021 itself was degraded).
+- Part of the ML drift is the models', not the turbines': on PEN T05 the
+  measured main-bearing temperature is flat at fixed power while the
+  baseline residual rises from about 0.1 °C (2019–2020) to 0.7–1.0 °C
+  (2022–2023), as those years were warmer than the training years.
 
 ## Testing and linting
 
@@ -649,10 +741,12 @@ make lint         # uv run ruff check .
     turbine's model node points to them.
   - `torch` added (approved in §5).
 - Compute and robustness (added during §7.9): this workstation reset
-  itself three times during training runs (no clean shutdown; GPU at most
-  62 °C and 154 W, RAM at most 10 of 60 GB in the monitored run; the cause
-  is unknown, and a later GPU run completed). One reset left a 0-byte
-  turbine Parquet, rebuilt from the raw files. Since then:
+  itself four times during thermal training runs on the GPU, the fourth
+  during the §7.10 retrain. None was a clean shutdown; the monitored runs
+  stayed at or below 62 °C and 154 W on the GPU, 80 °C on the CPU and
+  10 of 60 GB of RAM, and other GPU runs completed, so the cause is
+  unknown. One reset left a 0-byte turbine Parquet, rebuilt from the raw
+  files. Since then:
   - `src/storage.write_parquet` writes every Parquet atomically
     (temporary file, fsync, rename);
   - `compute.threads` (8) caps LightGBM (`n_jobs` in every `lightgbm`
@@ -665,6 +759,44 @@ make lint         # uv run ruff check .
     rows per turbine per step (lighter GPU load).
   - `ResidualModel` predicts the base per training frame, takes a row
     filter and can use the base prediction as a feature.
+- Alerts and evaluation (§7.10), decided with the user:
+  - **Calibration year:** `train_test_split` has `train_end`
+    2020-12-31 23:50 (models fit 2016–2020) and a new `calibration_end`
+    2021-12-31 23:50; thresholds come from 2021, test and evaluation are
+    2022+. The spec derives thresholds from the training residuals, but the
+    ML models fitted those rows: on PEN T08 gear oil the LightGBM threshold
+    was 0.67 °C and it raised 57 test alerts against 7 in six training
+    years. All models were retrained; `split_masks(frame, split, required)`
+    and `split_times` take the whole `train_test_split` block. Penmanshiel
+    pitch, gear-oil and main-bearing models now train on mid-2018 to 2020.
+  - Thresholds are a quantile (99.5 %) of a problem score: the residual
+    turned so that larger is worse (`alerts.direction` per model class:
+    power low, temperature high, pitch either side).
+  - A model's alerts less than 7 days apart are merged
+    (`alerts.merge_gap_days`, the same gap as event episodes, chosen
+    before looking at detection results): a sustained problem crosses the
+    threshold many times (13,404 alerts before merging, 5,883 after).
+  - Alerts are raised after `train_end` (calibration year and test), not
+    on the fitted years; only test-period alerts are evaluated.
+  - Fault events of one turbine and component less than 7 days apart are
+    one episode (Penmanshiel repeats "Missing gear oil" stops), detection
+    counts episodes, and lead time is that of the earliest alert within
+    30 days. The summary adds a chance level per row (random alerts at the
+    same rate) and a drift table (yearly mean score minus the calibration
+    year's) for slow changes that event matching cannot credit.
+  - An alert can fall within 30 days of two episodes; `kt:precedes` links
+    it to the nearest one, with that lead time.
+  - Alert IRIs carry the model id, e.g.
+    `kt:Alert_ThermalModel_KLM_T01_gear_oil_temp_hybrid_001` (the spec's
+    `kt:Alert_KLM_T01_gearbox_001` would collide between models). No new
+    schema terms: alerts use `kt:raisedBy`, `kt:concerns`, `kt:startTime`,
+    `kt:endTime`, `kt:precedes` and `kt:leadTimeHours`; peak scores and
+    thresholds stay in `models/alerts.json`.
+  - Power models concern the generator, so power alerts are matched to
+    generator events only (spec: same component); Kelmarsh has no
+    generator events in the test period, and no farm has main-bearing
+    events, so those alerts can only be false alarms or case studies.
+  - The committed graph now holds the alerts (3.7 MB instead of 1.5 MB).
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

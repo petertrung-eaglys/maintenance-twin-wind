@@ -256,7 +256,11 @@ fault_labels:
     - Overload yaw motor 1&3
     - Overload yaw motor 2&4
 train_test_split:
-  train_end: "2021-12-31 23:50"   # train 2016-2021, test 2022-2024
+  # Models fit on normal rows up to train_end; alert thresholds come from
+  # the calibration year up to calibration_end, which no model sees (residuals
+  # on fitted rows are too small); test and evaluation after it.
+  train_end: "2020-12-31 23:50"        # train 2016-2020
+  calibration_end: "2021-12-31 23:50"  # calibrate 2021, test 2022-2024
 seed: 42
 compute:
   # CPU threads for LightGBM (each lightgbm block has n_jobs: *threads)
@@ -315,6 +319,33 @@ thermal:
     steps: 10000
     batch_per_turbine: 256        # rows per turbine per step
     learning_rate: 0.001
+alerts:
+  # §7.10. residual = measured - expected on normal rows, smoothed with a
+  # rolling time-window mean. The threshold is a quantile of the smoothed
+  # residuals of the calibration year (no model saw it), on the side that
+  # signals a problem. Alerts are raised after train_end only.
+  window: 24h                  # rolling mean (time window)
+  min_samples: 36              # normal rows needed in the window (6 h)
+  quantile: 0.995              # 0.5 % of calibration time beyond threshold
+  min_duration_hours: 6
+  max_gap_hours: 6             # longer gaps split an exceedance
+  # A model's alerts less than this apart are one alert (the same gap as
+  # evaluation.merge_gap_days; a sustained problem crosses the threshold
+  # many times). Chosen before looking at detection results.
+  merge_gap_days: 7
+  direction:                   # which side of the residual is a problem
+    PowerModel: low            # underperformance
+    PitchModel: both
+    ThermalModel: high         # overheating
+  # Yaw: identified rolling-window offset vs the static offset
+  yaw_drift_deg: 4.0
+evaluation:
+  # An event is detected when an alert of the same turbine and component
+  # starts at most lookback_days before it. Events of one turbine and
+  # component less than merge_gap_days apart are one episode (Penmanshiel
+  # repeats "Missing gear oil" stops for weeks).
+  lookback_days: 30
+  merge_gap_days: 7
 yaw:
   # Static yaw misalignment per turbine (yaw.py): power ratio to the
   # turbine's training power curve vs measured misalignment, fitted as

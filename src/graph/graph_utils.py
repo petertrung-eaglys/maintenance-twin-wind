@@ -120,6 +120,28 @@ WHERE {
 ORDER BY ?farm_code ?turbine_id ?start
 """
 
+ALERTS_QUERY = """
+SELECT ?alert ?model ?model_class ?variant ?target ?farm_code ?turbine_id
+       ?component_key ?start ?end
+WHERE {
+  ?alert a kt:Alert ;
+         kt:raisedBy ?model ;
+         kt:concerns ?component ;
+         kt:startTime ?start ;
+         kt:endTime ?end .
+  ?model a ?model_class ;
+         kt:modelVariant ?variant ;
+         kt:hasTarget/kt:signalKey ?target .
+  ?model_class rdfs:subClassOf kt:Model .
+  ?component kt:componentKey ?component_key .
+  ?turbine kt:hasComponent ?component ;
+           kt:turbineId ?turbine_id .
+  ?farm kt:hasTurbine ?turbine ;
+        kt:farmCode ?farm_code .
+}
+ORDER BY ?farm_code ?turbine_id ?start ?alert
+"""
+
 # SPARQL evaluates UNION branches bottom-up, so each branch repeats the
 # turbine pattern (?t) instead of referring to the outer ?turbine.
 _T = "?f kt:farmCode ?farm_code ; kt:hasTurbine ?t . ?t kt:turbineId ?turbine_id ."
@@ -425,3 +447,63 @@ def add_model(
     if model_file is not None:
         g.add((model, KT.modelFile, Literal(model_file)))
     return model
+
+
+def alert_iri(model: URIRef, number: int) -> URIRef:
+    """IRI of a model's alert, e.g.
+    kt:Alert_ThermalModel_KLM_T01_gear_oil_temp_hybrid_001."""
+    return KT[f"Alert_{local_name(model)}_{number:03d}"]
+
+
+def add_alert(
+    g: Graph,
+    model: URIRef,
+    component: URIRef,
+    number: int,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> URIRef:
+    """Add an alert raised by `model` on `component` from start to end."""
+    alert = alert_iri(model, number)
+    g.add((alert, RDF.type, KT.Alert))
+    g.add((alert, RDFS.label, Literal(f"Alert {number} of {local_name(model)}")))
+    g.add((alert, KT.raisedBy, model))
+    g.add((alert, KT.concerns, component))
+    g.add((alert, KT.startTime, datetime_literal(start)))
+    g.add((alert, KT.endTime, datetime_literal(end)))
+    return alert
+
+
+def remove_alerts(g: Graph, model: URIRef) -> int:
+    """Remove every alert raised by `model`; return how many."""
+    alerts = list(g.subjects(KT.raisedBy, model))
+    for alert in alerts:
+        g.remove((alert, None, None))
+    return len(alerts)
+
+
+def get_alerts(
+    g: Graph, farm_code: str | None = None, turbine_id: str | None = None
+) -> pd.DataFrame:
+    """Alerts (optionally of one farm/turbine) with their model, target,
+    component and UTC start and end."""
+    frame = query(g, ALERTS_QUERY, farm_code=farm_code, turbine_id=turbine_id)
+    return frame.assign(
+        farm_code=frame["farm_code"] if farm_code is None else farm_code,
+        turbine_id=frame["turbine_id"] if turbine_id is None else turbine_id,
+        model_class=frame["model_class"].str.split("#").str[-1],
+        start=pd.to_datetime(frame["start"], utc=True),
+        end=pd.to_datetime(frame["end"], utc=True),
+    )
+
+
+def add_precedes(g: Graph, alert: URIRef, event: URIRef, lead_hours: float) -> None:
+    """Link an alert to the fault event it anticipated, with its lead time."""
+    g.add((alert, KT.precedes, event))
+    g.set((alert, KT.leadTimeHours, decimal(lead_hours)))
+
+
+def clear_precedes(g: Graph) -> None:
+    """Remove every alert-to-event link (before a new evaluation)."""
+    g.remove((None, KT.precedes, None))
+    g.remove((None, KT.leadTimeHours, None))

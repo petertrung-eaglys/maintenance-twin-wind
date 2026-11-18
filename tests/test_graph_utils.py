@@ -5,12 +5,17 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from rdflib import Graph
+from rdflib import Graph, URIRef
 
 from src.graph.graph_utils import (
     KT,
     PROV,
+    add_alert,
     add_model,
+    add_precedes,
+    clear_precedes,
+    component_iri,
+    get_alerts,
     get_fault_events,
     get_lineage,
     get_model_inputs,
@@ -21,6 +26,7 @@ from src.graph.graph_utils import (
     local_name,
     model_iri,
     parquet_path_of,
+    remove_alerts,
     save_graph,
     turbine_iri,
 )
@@ -231,3 +237,70 @@ def test_get_model_inputs_lists_input_sensors(graph: Graph) -> None:
     model = model_iri("PowerModel", "KLM", "T01", "baseline")
 
     assert get_model_inputs(graph, str(model)) == ["wind_speed"]
+
+
+def add_gear_oil_model(g: Graph, variant: str) -> URIRef:
+    return add_model(
+        g,
+        "ThermalModel",
+        "KLM",
+        "T01",
+        "gearbox",
+        variant,
+        ["power"],
+        "gear_oil_temp",
+        METRICS,
+        TRAINED_AT,
+        qualifier="gear_oil_temp",
+    )
+
+
+GEARBOX = component_iri("KLM", "T01", "gearbox")
+START = pd.Timestamp("2022-04-20 06:00", tz="UTC")
+END = pd.Timestamp("2022-04-21 06:00", tz="UTC")
+
+
+def test_add_alert_is_returned_by_get_alerts(graph: Graph) -> None:
+    model = add_gear_oil_model(graph, "hybrid")
+    add_alert(graph, model, GEARBOX, 1, START, END)
+
+    alerts = get_alerts(graph, "KLM", "T01")
+
+    assert alerts.drop(columns=["model"]).to_dict("records") == [
+        {
+            "alert": str(KT.Alert_ThermalModel_KLM_T01_gear_oil_temp_hybrid_001),
+            "model_class": "ThermalModel",
+            "variant": "hybrid",
+            "target": "gear_oil_temp",
+            "component_key": "gearbox",
+            "start": START,
+            "end": END,
+            "farm_code": "KLM",
+            "turbine_id": "T01",
+        }
+    ]
+
+
+def test_remove_alerts_keeps_other_models_alerts(graph: Graph) -> None:
+    hybrid = add_gear_oil_model(graph, "hybrid")
+    physics = add_gear_oil_model(graph, "physics")
+    add_alert(graph, hybrid, GEARBOX, 1, START, END)
+    add_alert(graph, physics, GEARBOX, 1, START, END)
+
+    remove_alerts(graph, hybrid)
+
+    assert get_alerts(graph)["variant"].tolist() == ["physics"]
+
+
+def test_precedes_links_an_alert_to_an_event_and_can_be_cleared(
+    graph: Graph,
+) -> None:
+    model = add_gear_oil_model(graph, "hybrid")
+    alert = add_alert(graph, model, GEARBOX, 1, START, END)
+    event = URIRef(get_fault_events(graph, "KLM", "T01")["event"].iloc[-1])
+    add_precedes(graph, alert, event, 268.0)
+    linked = len(list(graph.triples((alert, KT.precedes, event))))
+
+    clear_precedes(graph)
+
+    assert (linked, len(list(graph.triples((None, KT.precedes, None))))) == (1, 0)

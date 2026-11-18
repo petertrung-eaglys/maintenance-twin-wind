@@ -1,6 +1,8 @@
 """Shared modelling conventions (spec §7.6) for every model variant.
 
-- Train on normal rows up to `train_end`, test on normal rows after it.
+- Train on normal rows up to `train_end`; the next period up to
+  `calibration_end` sets alert thresholds (no model sees it); test on
+  normal rows after `calibration_end`.
 - Every variant implements `NormalBehaviourModel`: `fit` takes a mapping
   turbine id -> DataFrame, so data is never pooled out of sight of which
   turbine it came from (the federated-learning hook, spec §10).
@@ -45,14 +47,23 @@ def add_direction_features(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.assign(wind_dir_sin=np.sin(radians), wind_dir_cos=np.cos(radians))
 
 
+def split_times(split: Mapping[str, str]) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """train_end and calibration_end of config `train_test_split`, in UTC."""
+    return (
+        pd.Timestamp(split["train_end"], tz="UTC"),
+        pd.Timestamp(split["calibration_end"], tz="UTC"),
+    )
+
+
 def split_masks(
-    frame: pd.DataFrame, train_end: str, required: list[str]
+    frame: pd.DataFrame, split: Mapping[str, str], required: list[str]
 ) -> tuple[pd.Series, pd.Series]:
     """Train and test masks: normal rows with all `required` columns present,
-    up to and including train_end, and after it."""
+    up to and including train_end, and after calibration_end."""
+    train_end, calibration_end = split_times(split)
     usable = frame["is_normal"] & frame[required].notna().all(axis=1)
-    before = frame["timestamp"] <= pd.Timestamp(train_end, tz="UTC")
-    return usable & before, usable & ~before
+    timestamps = frame["timestamp"]
+    return usable & (timestamps <= train_end), usable & (timestamps > calibration_end)
 
 
 def evaluate(y_true: pd.Series, y_pred: np.ndarray, scale: float) -> dict[str, float]:

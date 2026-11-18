@@ -200,7 +200,7 @@ def train_turbine(
     record and offset windows."""
     spec, yaw = config["models"]["yaw"], config["yaw"]
     frame = pd.read_parquet(path)
-    train, test = split_masks(frame, config["train_test_split"]["train_end"], REQUIRED)
+    train, test = split_masks(frame, config["train_test_split"], REQUIRED)
     model = YawModel(config["physics"], yaw).fit({turbine_id: frame[train]})
     model_file = models_dir / f"{model_id_of(spec, code, turbine_id)}.json"
     model_file.write_text(json.dumps(model.to_dict(), indent=2))

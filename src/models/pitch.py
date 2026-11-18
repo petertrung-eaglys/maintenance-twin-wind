@@ -113,7 +113,7 @@ def masks(
 ) -> tuple[pd.Series, pd.Series]:
     """Train and test rows above rated wind speed with all inputs."""
     required = [*config["models"]["pitch_hybrid"]["features"], "pitch"]
-    train, test = split_masks(frame, config["train_test_split"]["train_end"], required)
+    train, test = split_masks(frame, config["train_test_split"], required)
     above = above_rated(frame, rated)
     return train & above, test & above
 

@@ -11,7 +11,8 @@ behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (inspection; decisions in the README "Data inspection decisions"), §7.4
 (load, events, clean), §7.5 (ontology), §7.6–7.7 (modelling conventions,
 LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw),
-§7.9 (thermal models: physics, baseline, hybrid, PINN).
+§7.9 (thermal models: physics, baseline, hybrid, PINN), §7.10 (alerts,
+evaluation).
 
 ## Package management: uv only
 
@@ -29,6 +30,8 @@ make inspect   # raw structure, column coverage, events (~1 min)
 make data      # load_scada -> events -> clean (~9 min, order matters)
 make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
 make train     # power, pitch, yaw (~2 min), thermal (~15 min); nice'd
+make alerts    # residual alerts -> graph, models/alerts.json (~15 s)
+make evaluate  # alerts vs fault events -> models/evaluation.json (~15 s)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -44,7 +47,8 @@ survive a session disconnect, and keep `compute.threads` and `nice`.
 ## Module map
 
 `src/` is grouped by concern: `data/` (raw files → clean Parquet),
-`graph/` (the RDF graph), `models/` (normal-behaviour models). Tests stay
+`graph/` (the RDF graph), `models/` (normal-behaviour models), `health/`
+(alerts and their evaluation). Tests stay
 flat in `tests/` (`test_<module>.py`).
 
 - `src/storage.py`: `write_parquet` (atomic: temp file, fsync, rename).
@@ -86,6 +90,8 @@ flat in `tests/` (`test_<module>.py`).
   (replaces), `get_models`, `get_model_inputs`; IRIs
   `kt:<Class>_<FARM>_<T>_<variant>`, or `kt:<Class>_<FARM>_<T>_<qualifier>_<variant>`
   with an optional qualifier (spec key `qualifier`; thermal: the target).
+  Alerts: `add_alert`, `remove_alerts`, `get_alerts`, `add_precedes`,
+  `clear_precedes`; IRIs `kt:Alert_<model id>_<NNN>`.
 - `build_ontology.py`: `COMPONENTS` (component key → class) and
   `SIGNAL_SEMANTICS` (signal → component, observable, unit); builds the
   whole graph from `FarmSources` per farm (testable without disk).
@@ -95,7 +101,8 @@ flat in `tests/` (`test_<module>.py`).
 - `modelling.py`: §7.6 conventions shared by every variant:
   `NormalBehaviourModel` (`fit(train_frames: Mapping[tid, DataFrame])`,
   `predict(frame)`), `split_masks`, `evaluate`, `prediction_column`
-  (`expected_<target>_<variant>`), `turbine_paths`, `with_turbine_specs`,
+  (`expected_<target>_<variant>`), `split_times`, `turbine_paths`,
+  `with_turbine_specs`,
   `register_model` (graph node + metrics record), `merge_metrics`.
 - `binned.py`: method of bins (`binned_means`, `interpolate`).
 - `residual.py`: `ResidualModel` (base model + LightGBM residual; base
@@ -119,6 +126,17 @@ flat in `tests/` (`test_<module>.py`).
   warm-up), `baseline.py` (`LightGBMThermalModel`), `pinn.py`
   (`ThermalPINN`, `ode_residual`), `train.py` (orchestration, per-target
   saving, `--targets`).
+
+`src/health/` (§7.10):
+
+- `alerts.py`: `smoothed_residual`, `problem_score` (direction per model
+  class), `calibration_threshold`, `alert_periods`, `merge_periods`,
+  `yearly_means` (drift KPI), `yaw_alert_periods`; writes the graph and
+  `models/alerts.json`.
+- `evaluate.py`: `merge_episodes`, `match_alerts` (all pairs),
+  `nearest_matches` (graph links), `chance_detection`, `summarise`
+  (groups from the models, so models without alerts still appear),
+  `drift_table`; writes `models/evaluation.json`.
 
 ## Rules (spec §8)
 
@@ -181,6 +199,16 @@ flat in `tests/` (`test_<module>.py`).
   temperatures are regulated by coolers (some fall as power rises), so the
   physics model stays 1–3 °C worse than the ML variants; that is expected.
   PINN λ above ~0.1 costs accuracy (the lumped balance is only ~5 °C good).
+- Split: models fit up to `train_end` (2020), alert thresholds come from
+  the calibration year up to `calibration_end` (2021), test is after it.
+  Never set thresholds on rows a model was fitted on (ML residuals there
+  are far too small).
+- Alerts: event-timed detection is at chance level for every model; the
+  ML thermal alerts mostly follow slow drift (some real, e.g. KLM T04 gear
+  oil +4–6 °C at power since 2023; some model extrapolation in warm
+  years). Don't tune thresholds or windows on test detection results.
+- Define functions above `if __name__ == "__main__":`; ruff does not flag
+  a function appended below it (NameError at run time).
 - Thermal frames must stay sorted by timestamp and contiguous (the free
   run restarts at gaps); slice the training period, don't mask it.
 - pandas 3: string columns keep NaN (not None) for missing values; parquet

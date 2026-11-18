@@ -1,4 +1,4 @@
-.PHONY: setup download inspect data ontology train test lint
+.PHONY: setup download inspect data ontology train alerts evaluate test lint
 
 setup:
 	uv sync
@@ -27,6 +27,12 @@ train:
 	$(NICE) uv run python -m src.models.pitch
 	$(NICE) uv run python -m src.models.yaw
 	$(NICE) uv run python -m src.models.thermal.train
+
+alerts:
+	$(NICE) uv run python -m src.health.alerts
+
+evaluate:
+	$(NICE) uv run python -m src.health.evaluate
 
 test:
 	uv run pytest

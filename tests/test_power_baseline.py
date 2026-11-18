@@ -7,6 +7,7 @@ import pytest
 from src.models.power_baseline import LightGBMPowerModel, train_turbine
 
 RATED = 2050.0
+SPLIT = {"train_end": "2021-12-31 23:50", "calibration_end": "2021-12-31 23:50"}
 SEED = 42
 SPEC = {
     "model_class": "PowerModel",
@@ -46,9 +47,7 @@ def synthetic_turbine(n: int = 3000, seed: int = 0) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def trained() -> tuple:
-    return train_turbine(
-        synthetic_turbine(), "T01", SPEC, "2021-12-31 23:50", RATED, SEED
-    )
+    return train_turbine(synthetic_turbine(), "T01", SPEC, SPLIT, RATED, SEED)
 
 
 def test_train_turbine_counts_normal_rows_per_period(trained: tuple) -> None:

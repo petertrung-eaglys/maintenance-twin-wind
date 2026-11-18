@@ -63,14 +63,14 @@ def train_turbine(
     frame: pd.DataFrame,
     turbine_id: str,
     spec: dict[str, Any],
-    train_end: str,
+    split: dict[str, str],
     rated_power_kw: float,
     seed: int,
 ) -> tuple[LightGBMPowerModel, dict[str, float], np.ndarray]:
     """Fit on one turbine's train rows; return model, test metrics and the
     prediction for every row."""
     data = add_direction_features(frame)
-    train, test = split_masks(data, train_end, [*spec["features"], spec["target"]])
+    train, test = split_masks(data, split, [*spec["features"], spec["target"]])
     model = LightGBMPowerModel(spec, seed).fit({turbine_id: data[train]})
     expected = model.predict(data)
     metrics = evaluate(data.loc[test, spec["target"]], expected[test], rated_power_kw)
@@ -96,7 +96,7 @@ def run_turbine(
         frame,
         turbine_id,
         spec,
-        config["train_test_split"]["train_end"],
+        config["train_test_split"],
         rated_power_kw,
         config["seed"],
     )

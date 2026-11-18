@@ -765,3 +765,29 @@ and the Kelmarsh repo tag the code was derived from.
 - Acceptance: 560 thermal models; mean test RMSE physics / baseline /
   hybrid / PINN 4.71 / 2.41 / 2.43 / 2.38 °C; PINN best on 78 of 140
   turbine-temperature pairs.
+
+### Milestone 7.10: alerts and evaluation (2026-11-18)
+
+- Decision (with the user): a calibration year. Models fit 2016–2020
+  (`train_end`), alert thresholds come from 2021 (`calibration_end`, no
+  model sees it), test and evaluation are 2022+. Thresholds from training
+  residuals were too tight for the ML models, which fitted those rows.
+  Every model was retrained; `split_masks` takes the whole split block.
+- `src/health/alerts.py`: 24 h rolling mean of measured − expected on
+  normal rows, problem score per model class (power low, temperature high,
+  pitch either side), threshold = 99.5th percentile of 2021, exceedances
+  ≥ 6 h, alerts less than 7 days apart merged; yaw drift alerts (identified
+  offset vs static, > 4°). Alerts replace each model's `kt:Alert` nodes;
+  `models/alerts.json` keeps thresholds, counts and yearly mean scores.
+- `src/health/evaluate.py`: events of one turbine and component less than
+  7 days apart form an episode; detected when an alert starts ≤ 30 days
+  before it; lead times, false alarms per turbine-year, chance detection
+  and a drift table (yearly mean score minus 2021's);
+  `kt:precedes`/`kt:leadTimeHours` to the nearest episode;
+  `models/evaluation.json`. Makefile targets `alerts`, `evaluate`.
+- `graph_utils`: `alert_iri`, `add_alert`, `remove_alerts`, `get_alerts`,
+  `add_precedes`, `clear_precedes`.
+- Acceptance: 5,883 alerts; event-timed detection at chance level for
+  every model (e.g. PEN gearbox gear oil: PINN 41/111 vs chance 0.36);
+  the drift table finds slow changes all variants agree on (KLM T04 gear
+  oil +1.7 °C in 2024, KLM T02 −50 kW).

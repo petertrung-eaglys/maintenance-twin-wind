@@ -172,7 +172,7 @@ def train_turbine(
     hybrid_spec = config["models"]["power_hybrid"]
     frame = prepare(pd.read_parquet(path), spec_row)
     required = [*hybrid_spec["features"], "power"]
-    train, test = split_masks(frame, config["train_test_split"]["train_end"], required)
+    train, test = split_masks(frame, config["train_test_split"], required)
     hybrid = HybridPowerModel(physics_model, hybrid_spec, config["seed"])
     hybrid.fit({turbine_id: frame[train]})
     hybrid_file = (
@@ -212,9 +212,7 @@ def train_farm(
         train_frames = {}
         for tid in group.index:
             frame = prepare(pd.read_parquet(paths[tid]), specs.loc[tid])
-            train, _ = split_masks(
-                frame, config["train_test_split"]["train_end"], required
-            )
+            train, _ = split_masks(frame, config["train_test_split"], required)
             train_frames[tid] = frame[train]
         curve_file = models_dir / f"power_physics_{turbine_model}.json"
         physics = fit_physics(config["physics"], train_frames, curve_file)
