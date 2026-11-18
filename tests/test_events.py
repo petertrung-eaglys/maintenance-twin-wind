@@ -20,6 +20,7 @@ def raw_row(start: str, end: str, status: str, message: str, turbine="T01") -> d
         "Service contract category": "",
         "IEC category": "Forced outage",
         "turbine": turbine,
+        "source_file": f"Status_X_{turbine}.csv",
     }
 
 
@@ -63,6 +64,7 @@ def test_tidy_events_renames_dedupes_and_sorts() -> None:
             "code",
             "message",
             "iec_category",
+            "source_file",
             "component",
         ],
         ["Yaw error", "Low gearbox oil pressure", "Yaw error", "Grid loss"],

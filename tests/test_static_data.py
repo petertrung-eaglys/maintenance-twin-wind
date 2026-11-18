@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.static_data import read_static, turbine_id_from_title
+from src.static_data import read_mapping, read_static, turbine_id_from_title
 
 STATIC = (
     "﻿Wind Farm,Title,Alternative Title,Identity,Manufacturer,Model,"
@@ -16,6 +16,35 @@ STATIC = (
     "15/04/2016,\n"
     ",,,,,,,,,,,,,,\n"
 )
+
+
+def test_read_mapping_unifies_csv_and_xlsx_column_names(tmp_path: Path) -> None:
+    csv_path, xlsx_path = tmp_path / "m.csv", tmp_path / "m.xlsx"
+    csv_path.write_text(
+        "﻿Greenbyte Signal ID,Greenbyte Title,Manufacturer Title,Unit\n"
+        "5,Power,Active power,kWh\n",
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        {
+            "DataSignalId": [5],
+            "TitleGreenbyte": ["Power"],
+            "TitleManufacturer": ["Active power"],
+            "Unit": ["kWh"],
+            "MinValue": [0],
+            "MaxValue": [3000],
+        }
+    ).to_excel(xlsx_path, index=False)
+
+    expected = {
+        "signal_id": [5],
+        "greenbyte_title": ["Power"],
+        "manufacturer_title": ["Active power"],
+        "unit": ["kWh"],
+    }
+    assert [read_mapping(p).to_dict("list") for p in (csv_path, xlsx_path)] == [
+        expected
+    ] * 2
 
 
 def test_turbine_id_from_title_padded_or_not() -> None:

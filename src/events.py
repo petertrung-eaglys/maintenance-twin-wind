@@ -21,6 +21,7 @@ EVENT_COLUMNS = {
     "Code": "code",
     "Message": "message",
     "IEC category": "iec_category",
+    "source_file": "source_file",
 }
 EVENT_KEY = ["turbine_id", "start", "status", "code", "message"]
 
@@ -35,8 +36,10 @@ def tidy_events(
 ) -> pd.DataFrame:
     """Rename, parse UTC times, dedupe and label fault events with a component.
 
-    `end` is missing ("-") for informational rows. Only rows whose status is
-    one of `statuses` get a component; unmatched messages stay missing.
+    `raw` holds status-file rows with `turbine` and `source_file` (the status
+    file name). `end` is missing ("-") for informational rows. Only rows
+    whose status is one of `statuses` get a component; unmatched messages
+    stay missing.
     """
     frame = raw.rename(columns=EVENT_COLUMNS)[list(EVENT_COLUMNS.values())]
     frame = frame.assign(
@@ -55,7 +58,10 @@ def load_events(config: dict[str, Any], farm: str) -> pd.DataFrame:
     """All status rows of a farm as a tidy events table."""
     scada_name = config["farms"][farm]["scada_name"]
     paths = status_files(scada_dirs(config, farm))
-    raw = pd.concat([read_status(p, scada_name) for p in paths], ignore_index=True)
+    raw = pd.concat(
+        [read_status(p, scada_name).assign(source_file=p.name) for p in paths],
+        ignore_index=True,
+    )
     return tidy_events(raw, config["fault_labels"], config["events"]["fault_statuses"])
 
 

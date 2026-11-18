@@ -9,7 +9,7 @@ milestones in order; §11 logs every milestone and change. `README.md` holds
 results, limitations and "Deviations from spec". Read both before changing
 behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (inspection; decisions in the README "Data inspection decisions"), §7.4
-(load, events, clean).
+(load, events, clean), §7.5 (ontology).
 
 ## Package management: uv only
 
@@ -25,6 +25,7 @@ make setup     # uv sync
 make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
 make inspect   # raw structure, column coverage, events (~1 min)
 make data      # load_scada -> events -> clean (~9 min, order matters)
+make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -48,13 +49,21 @@ Makefile target in its milestone.
   line), turbine ids `T01` from `<scada_name>_<N>_` (padded or not),
   readers `file_columns`, `read_signals`, `read_status`.
 - `src/static_data.py`: `read_static` → static table indexed by turbine
-  id (specs, location, UTC commissioning date).
+  id (specs, location, UTC commissioning date); `read_mapping` → both
+  farms' signal mappings with the same column names.
+- `src/graph_utils.py`: the only module that reads the graph. Farm-scoped
+  IRI helpers (`turbine_iri("KLM", "T01")`, `component_iri`,
+  `sensor_iri`, `fault_event_iri`, `source_iri`), SPARQL `*_QUERY`
+  constants and `get_*` lookups binding `farm_code` and `turbine_id`.
+- `src/build_ontology.py`: `COMPONENTS` (component key → class) and
+  `SIGNAL_SEMANTICS` (signal → component, observable, unit); builds the
+  whole graph from `FarmSources` per farm (testable without disk).
 - `src/inspect_data.py`: §7.3 decision gate, printed output; testable
   helpers `filled_fraction`, `event_counts`, `read_table`.
 - `src/load_scada.py` → `data/processed/<farm>/<T>.parquet` (timestamp,
   turbine_id, core + component signals). `src/events.py` →
   `data/processed/<farm>/events.parquet` (turbine_id, start, end, status,
-  code, message, iec_category, component). `src/clean.py` adds
+  code, message, iec_category, source_file, component). `src/clean.py` adds
   `air_density`, `yaw_misalignment`, `is_normal` in place (needs
   events.parquet).
 
@@ -92,6 +101,11 @@ Makefile target in its milestone.
   main-bearing fault messages.
 - Wind direction = nacelle position + vane angle (not independent), so
   `yaw_misalignment` is the vane's relative wind angle.
+- SPARQL UNION branches are evaluated bottom-up: a branch cannot use a
+  variable bound outside it (`BIND(?outer AS ?s)` matches everything).
+  Repeat the turbine pattern inside each branch (see `LINEAGE_QUERY`).
+- `ontology/wind_twin.ttl` is committed; tests use the synthetic graph in
+  `tests/conftest.py`, never the real file.
 - pandas 3: string columns keep NaN (not None) for missing values; parquet
   timestamps may not be ns, so convert with `.to_numpy("datetime64[ns]")`
   before numpy comparisons.

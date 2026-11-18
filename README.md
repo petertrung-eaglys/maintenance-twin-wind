@@ -9,8 +9,8 @@ before the turbine raises a fault. See [docs/spec.md](docs/spec.md) for the
 full specification.
 
 **Status:** milestones §7.1 (scaffold), §7.2 (download), §7.3
-(inspection) and §7.4 (load, events, clean) done. Later milestones add
-their pipeline steps and Makefile targets.
+(inspection), §7.4 (load, events, clean) and §7.5 (ontology) done. Later
+milestones add their pipeline steps and Makefile targets.
 
 Code is derived from the Kelmarsh power-performance twin in
 `~/digital-twin-wind-farm`, tag **`v1.0-kelmarsh`** (copied and adapted, not
@@ -60,6 +60,16 @@ make data         # load_scada + events + clean -> data/processed/<farm>/
 the raw CSVs (the 2023/2024 exports with repeated years dominate); `events`
 and `clean` take a few seconds. It writes `data/processed/<farm>/<T>.parquet`
 per turbine and `data/processed/<farm>/events.parquet`.
+
+```bash
+make ontology     # build ontology/wind_twin.ttl (about 2 s)
+```
+
+The RDF graph `ontology/wind_twin.ttl` (committed) is the source of
+structural truth: later steps and the app discover farms, turbines,
+components, sensors and Parquet paths through the SPARQL queries in
+`src/graph_utils.py`, not through `config.yaml`. `make ontology` rewrites
+the whole file, so steps that add models or alerts must run again after it.
 
 Every pipeline script runs standalone with `uv run python -m src.<name>`
 and has a Makefile target (added per milestone).
@@ -134,6 +144,13 @@ From `make inspect` on both farms:
   status rows; labelled fault events match the §7.3 table (Kelmarsh
   gearbox 57, generator 2, pitch 56, yaw 26; Penmanshiel gearbox 654,
   generator 72, pitch 146, yaw 30).
+
+**Graph (§7.5):** `ontology/wind_twin.ttl` holds 20,228 triples: the
+schema (20 classes, 46 properties), 2 farms with their datasets, 20
+turbines with specs, 7 components and 15 sensors each (all 300 sensors
+matched to their farm's signal mapping), 1,043 fault events, and the
+provenance of 429 source files (33 downloads, 198 turbine data files, 198
+status files), each raw file `kt:partOf` the zip it was extracted from.
 
 ## Testing and linting
 
@@ -220,6 +237,36 @@ make lint         # uv run ruff check .
   day-first dates, turbine ids from titles). `config.yaml` gained
   `farms.*.static_file`, `sampling`, `cleaning` (with `required` and
   per-model `rated_wind_speed`) and `events.stop_status`.
+- Ontology (§7.5):
+  - Namespace `https://example.org/wind-twin#` (prefix `kt:`). Besides
+    the spec's components (`Gearbox`, `Generator`, `MainBearing`,
+    `PitchSystem`, `YawSystem`), every turbine has a `Nacelle` (wind,
+    ambient and nacelle-temperature sensors) and a `Rotor` (rotor speed),
+    so every sensor monitors a component. `nacelle_direction` monitors
+    the yaw system, `power` the generator.
+  - `kt:Sensor` is a subclass of `sosa:Sensor`; sensors `sosa:observes`
+    an observable property and carry a QUDT unit, as in the Kelmarsh repo.
+  - Extra properties: `kt:farmCode`, `kt:turbineId`, `kt:componentKey`
+    (every lookup binds farm code and turbine id), turbine specs,
+    `kt:manufacturerTitle`/`kt:greenbyteSignalId` from the mapping, and
+    for fault events `kt:affects` (event → component), `kt:startTime`,
+    `kt:endTime`, `kt:eventStatus`, `kt:eventCode`, `kt:eventMessage`,
+    `kt:iecCategory`. `kt:startTime`/`kt:endTime` have domain
+    `rdfs:Resource` because alerts will use them too.
+  - Provenance: farm `prov:wasDerivedFrom` its `kt:Dataset`; turbines
+    derive from the static file; sensors from their raw data files and the
+    mapping file; fault events from their status file. Each raw file is
+    `kt:partOf` the zip that contains it, read from the zip member lists
+    (several Penmanshiel zips share a year folder, so the folder alone
+    does not identify the zip).
+  - No model nodes yet: each training milestone adds its `kt:Model` nodes
+    (the Kelmarsh repo created power-model stubs in `build_ontology`).
+  - The lineage query leaves out fault events (hundreds on some
+    turbines); `graph_utils.get_fault_events` returns them.
+  - `events.parquet` gained a `source_file` column (the status file) for
+    event provenance. `config.yaml` gained `farms.*.mapping_file`;
+    `static_data.read_mapping` gives both farms' mapping tables the same
+    column names.
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

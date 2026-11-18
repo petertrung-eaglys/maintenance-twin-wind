@@ -11,6 +11,7 @@ farms:
     code: KLM                   # prefix for farm-scoped ids: KLM_T01
     scada_name: Kelmarsh        # farm name in the SCADA file names
     static_file: Kelmarsh_WT_static.csv
+    mapping_file: Kelmarsh_WT_dataSignalMapping.csv
     dataset:
       title: "Kelmarsh wind farm data"
       doi: "10.5281/zenodo.16807551"
@@ -65,6 +66,7 @@ farms:
     code: PEN
     scada_name: Penmanshiel
     static_file: Penmanshiel_WT_static.csv
+    mapping_file: Penmanshiel_WT_dataSignalMapping.xlsx
     dataset:
       title: "Penmanshiel wind farm data"
       doi: "10.5281/zenodo.16807304"

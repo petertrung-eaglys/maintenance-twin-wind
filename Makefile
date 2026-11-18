@@ -1,4 +1,4 @@
-.PHONY: setup download inspect data test lint
+.PHONY: setup download inspect data ontology test lint
 
 setup:
 	uv sync
@@ -13,6 +13,9 @@ data:
 	uv run python -m src.load_scada
 	uv run python -m src.events
 	uv run python -m src.clean
+
+ontology:
+	uv run python -m src.build_ontology
 
 test:
 	uv run pytest

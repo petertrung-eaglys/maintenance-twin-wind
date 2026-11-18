@@ -1,4 +1,4 @@
-"""Read a farm's static turbine file (specs, location, commissioning date)."""
+"""Read a farm's reference files: static turbine table and signal mapping."""
 
 from pathlib import Path
 
@@ -17,6 +17,16 @@ STATIC_COLUMNS = {
     "Longitude": "longitude",
     "Elevation (m)": "elevation_m",
     "Commercial Operations Date": "commercial_operations_date",
+}
+# Kelmarsh (CSV) and Penmanshiel (xlsx) name the mapping columns differently
+MAPPING_COLUMNS = {
+    "Greenbyte Signal ID": "signal_id",
+    "DataSignalId": "signal_id",
+    "Greenbyte Title": "greenbyte_title",
+    "TitleGreenbyte": "greenbyte_title",
+    "Manufacturer Title": "manufacturer_title",
+    "TitleManufacturer": "manufacturer_title",
+    "Unit": "unit",
 }
 
 
@@ -40,3 +50,15 @@ def read_static(path: Path) -> pd.DataFrame:
         turbine_id=frame["title"].map(turbine_id_from_title),
     )
     return tidy.set_index("turbine_id")
+
+
+def read_mapping(path: Path) -> pd.DataFrame:
+    """Signal mapping (CSV or xlsx) with columns signal_id, greenbyte_title,
+    manufacturer_title and unit."""
+    raw = (
+        pd.read_excel(path)
+        if path.suffix == ".xlsx"
+        else pd.read_csv(path, encoding="utf-8-sig")
+    )
+    columns = {c: MAPPING_COLUMNS[c] for c in raw.columns if c in MAPPING_COLUMNS}
+    return raw.rename(columns=columns)[list(dict.fromkeys(MAPPING_COLUMNS.values()))]

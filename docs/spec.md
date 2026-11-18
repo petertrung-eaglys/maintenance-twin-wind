@@ -658,3 +658,18 @@ and the Kelmarsh repo tag the code was derived from.
   `make data` target (about 9 minutes).
 - Acceptance: 20 turbines, 8.6 million rows, 72–81 % normal per turbine;
   fault events per farm and component printed and match §7.3.
+
+### Milestone 7.5: ontology (2026-11-18)
+
+- `src/graph_utils.py` ported for two farms: farm-scoped IRI helpers,
+  SPARQL lookups `get_farms`, `get_turbines`, `get_components`,
+  `get_sensors`, `get_fault_events`, `get_lineage`, `get_schema`,
+  `parquet_path_of`, and load/save with the schema block first.
+- `src/build_ontology.py`: schema for all §7.5 classes and properties,
+  datasets and source files (raw files linked to their real zip), farms,
+  turbines with specs, 7 components and 15 sensors per turbine, labelled
+  fault events. `make ontology` target; `rdflib` added.
+- `events.parquet` gained `source_file`; `static_data.read_mapping`;
+  `config.yaml` `farms.*.mapping_file`.
+- Acceptance: `ontology/wind_twin.ttl` with both farms, 20 turbines, 300
+  sensors, 1,043 fault events and the provenance of 429 source files.
