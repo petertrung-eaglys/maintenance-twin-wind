@@ -24,6 +24,11 @@ def farm_raw_dir(config: dict[str, Any], farm: str) -> Path:
     return Path(config["paths"]["raw"]) / farm
 
 
+def farm_processed_dir(config: dict[str, Any], farm: str) -> Path:
+    """The folder a farm's processed Parquet files go to: <processed>/<farm>."""
+    return Path(config["paths"]["processed"]) / farm
+
+
 def scada_archives(config: dict[str, Any], farm: str) -> list[dict[str, str]]:
     """A farm's download entries that are SCADA archives (with extract_to)."""
     return [f for f in config["farms"][farm]["downloads"] if "extract_to" in f]

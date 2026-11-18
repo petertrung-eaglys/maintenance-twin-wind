@@ -8,9 +8,9 @@ between the healthy twin and the measurement reveals component degradation
 before the turbine raises a fault. See [docs/spec.md](docs/spec.md) for the
 full specification.
 
-**Status:** milestones §7.1 (scaffold), §7.2 (download) and §7.3
-(inspection) done. Later milestones add their pipeline steps and Makefile
-targets.
+**Status:** milestones §7.1 (scaffold), §7.2 (download), §7.3
+(inspection) and §7.4 (load, events, clean) done. Later milestones add
+their pipeline steps and Makefile targets.
 
 Code is derived from the Kelmarsh power-performance twin in
 `~/digital-twin-wind-farm`, tag **`v1.0-kelmarsh`** (copied and adapted, not
@@ -51,6 +51,15 @@ make inspect      # print raw file structure, column coverage and events
 
 `make inspect` takes about a minute (it reads the configured columns of one
 turbine file per year, including the multi-GB 2023/2024 exports).
+
+```bash
+make data         # load_scada + events + clean -> data/processed/<farm>/
+```
+
+`make data` takes about 9 minutes, almost all of it `load_scada` parsing
+the raw CSVs (the 2023/2024 exports with repeated years dominate); `events`
+and `clean` take a few seconds. It writes `data/processed/<farm>/<T>.parquet`
+per turbine and `data/processed/<farm>/events.parquet`.
 
 Every pipeline script runs standalone with `uv run python -m src.<name>`
 and has a Makefile target (added per milestone).
@@ -99,6 +108,32 @@ From `make inspect` on both farms:
    rpm)" stops (354 in total), so evaluation (§7.10) has to merge
    back-to-back events.
 4. **Penmanshiel layout:** see "Deviations from spec" below.
+
+## Results
+
+**Data and cleaning (§7.4):**
+
+| Farm | Turbines | Rows | Normal | Normal rows train / test |
+|---|---|---|---|---|
+| Kelmarsh | 6 | 2,839,104 (473,184 each) | 78.5 % (75.6–80.6 %) | 1,464,798 / 762,653 |
+| Penmanshiel | 14 | 5,758,976 (386k–447k each) | 76.3 % (71.9–79.6 %) | 3,085,057 / 1,309,634 |
+
+- Penmanshiel T01–T10 run from 2016-06-06 to the end of 2023 (no 2024
+  data); T11–T15 to the end of 2024.
+- Missing values: Kelmarsh 1.9–5.5 % for every signal. Penmanshiel
+  2.2–4.8 %, except pitch, main-bearing and gear-oil temperatures at 25 %
+  (no values before mid-2018 on any turbine).
+- 2.5–7.1 % of rows per turbine fall inside a Stop event and are not
+  normal. No row before a farm's commercial operations date is normal.
+- `yaw_misalignment` (wind direction − nacelle position) is the nacelle
+  vane's relative wind angle: on normal rows its median is within ±0.6°,
+  its IQR about ±5°, and 99.6–100 % lie within ±30°. Wind direction is
+  therefore not independent of the nacelle position; §7.8 decides on the
+  yaw model with that in mind.
+- `events.parquet`: 503,150 Kelmarsh and 1,053,535 Penmanshiel distinct
+  status rows; labelled fault events match the §7.3 table (Kelmarsh
+  gearbox 57, generator 2, pitch 56, yaw 26; Penmanshiel gearbox 654,
+  generator 72, pitch 146, yaw 30).
 
 ## Testing and linting
 
@@ -160,6 +195,34 @@ make lint         # uv run ruff check .
   rather than message patterns: exact names keep sensor-defect messages
   with similar wording (e.g. "PT100 inlet gear defect") out.
 - `config.yaml` gained `events.fault_statuses` (`Stop`, `Warning`).
+- Cleaning (§7.4):
+  - `is_normal` = complete required signals, wind speed 3–25 m/s, power
+    > 0, pitch < 5° below rated wind speed, **on or after the commercial
+    operations date** from the static file, and **no Stop event active**
+    (any Stop status, not only labelled faults: manual stops, grid loss
+    and tests are not normal operation either). A row counts as stopped
+    when its 10-minute interval meets the event; a Stop without an end
+    marks only the row containing its start.
+  - A missing pitch passes the pitch rule (Penmanshiel has no pitch
+    before mid-2018; rejecting those rows would drop two years of power
+    data). Those rows cannot be checked for curtailment.
+  - Rated wind speed per turbine model: MM92 12.0 m/s (Kelmarsh repo),
+    MM82 14.0 m/s estimated from 2019–2021 data (no manufacturer value at
+    hand): the first 0.5 m/s bin with median power ≥ 98 % of rated is
+    14–15 m/s, and the median pitch there is 7°, as at the MM92's 12 m/s.
+    The same 99 %-of-rated method gives exactly 12.0 m/s for the MM92.
+  - No power-curve PNGs are written (the Kelmarsh repo did); plots come
+    with the report (§7.12).
+- Events (§7.4): `events.parquet` keeps every status (including
+  Informational), de-duplicated on turbine, start, status, code and
+  message; `component` is set only for Stop/Warning rows.
+- New `src/static_data.py` reads the static file (drops empty rows,
+  day-first dates, turbine ids from titles). `config.yaml` gained
+  `farms.*.static_file`, `sampling`, `cleaning` (with `required` and
+  per-model `rated_wind_speed`) and `events.stop_status`.
+- `file_columns`, `read_signals` and `read_status` moved from
+  `inspect_data.py` to `scada_format.py` so the pipeline does not import
+  the inspection script.
 - `inspect_data.py` also prints, per farm, how many files lack each
   configured column and the share of timestamps with a value per signal
   (first turbine file of each year), to decide decision 2 on real values

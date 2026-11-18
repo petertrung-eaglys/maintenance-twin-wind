@@ -6,21 +6,10 @@ import pandas as pd
 
 from src.inspect_data import (
     event_counts,
-    file_columns,
     files_missing_count,
     filled_fraction,
     missing_columns,
-    read_signals,
-    read_status,
     read_table,
-)
-
-STATUS_FILE = (
-    "# Exported by Greenbyte\r\n"
-    "# Turbine: Penmanshiel 02\r\n"
-    "Timestamp start,Timestamp end,Duration,Status,Code,Message,\r\n"
-    "2022-01-01 00:00:00,2022-01-01 01:00:00,01:00:00,Stop,10,Low oil,\r\n"
-    "2022-01-02 00:00:00,-,-,Informational,1,Run,\r\n"
 )
 
 
@@ -43,20 +32,6 @@ def test_files_missing_count_counts_files_lacking_each_column() -> None:
     }
 
 
-def test_file_columns_reads_commented_header(tmp_path: Path) -> None:
-    path = tmp_path / "Turbine_Data_K_1_x.csv"
-    path.write_bytes(b"# meta\r\n# Date and time,Power (kW)\r\n2022,1\r\n")
-
-    assert file_columns(path) == ["Date and time", "Power (kW)"]
-
-
-def test_read_signals_reads_only_given_columns(tmp_path: Path) -> None:
-    path = tmp_path / "Turbine_Data_K_1_x.csv"
-    path.write_bytes(b"# meta\r\n# t,a,b\r\n1,2,3\r\n4,5,6\r\n")
-
-    assert read_signals(path, ["t", "b"]).to_dict("list") == {"t": [1, 4], "b": [3, 6]}
-
-
 def test_filled_fraction_counts_timestamps_filled_in_any_copy() -> None:
     nan = float("nan")
     frame = pd.DataFrame(
@@ -68,18 +43,6 @@ def test_filled_fraction_counts_timestamps_filled_in_any_copy() -> None:
     )
 
     assert filled_fraction(frame, "t").to_dict() == {"a": 2 / 3, "b": 1 / 3}
-
-
-def test_read_status_parses_plain_header_and_adds_turbine(tmp_path: Path) -> None:
-    path = tmp_path / "Status_Penmanshiel_02_x.csv"
-    path.write_bytes(STATUS_FILE.encode())
-
-    frame = read_status(path, "Penmanshiel")
-
-    assert frame[["Status", "Message", "turbine"]].values.tolist() == [
-        ["Stop", "Low oil", "T02"],
-        ["Informational", "Run", "T02"],
-    ]
 
 
 def event(turbine: str, start: str, status: str, message: str) -> dict:

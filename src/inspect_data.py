@@ -10,17 +10,17 @@ import pandas as pd
 
 from src.config import farm_names, farm_raw_dir, load_config, scada_dirs
 from src.scada_format import (
+    HEADER_SEARCH_LINES,
+    file_columns,
     group_files,
-    header_line_index,
-    parse_columns,
     read_head,
+    read_signals,
+    read_status,
     status_files,
     status_header_index,
-    turbine_id_from_filename,
 )
 
 HEAD_LINES = 12
-HEADER_SEARCH_LINES = 50
 LINE_PREVIEW_CHARS = 200
 EVENT_KEY = ["turbine", "Timestamp start", "Status", "Code", "Message"]
 
@@ -42,26 +42,6 @@ def files_missing_count(
     return {w: sum(w not in cols for cols in columns_by_file.values()) for w in wanted}
 
 
-def file_columns(path: Path) -> list[str]:
-    """Column names of one turbine data file (header is a comment line)."""
-    lines = read_head(path, HEADER_SEARCH_LINES)
-    return parse_columns(lines[header_line_index(lines)])
-
-
-def read_signals(path: Path, columns: list[str]) -> pd.DataFrame:
-    """The given columns of one turbine data file (header is a comment line)."""
-    lines = read_head(path, HEADER_SEARCH_LINES)
-    index = header_line_index(lines)
-    return pd.read_csv(
-        path,
-        skiprows=index + 1,
-        header=None,
-        names=parse_columns(lines[index]),
-        usecols=columns,
-        encoding="utf-8-sig",
-    )
-
-
 def filled_fraction(frame: pd.DataFrame, timestamp_column: str) -> pd.Series:
     """Per column, the share of distinct timestamps with a value.
 
@@ -70,13 +50,6 @@ def filled_fraction(frame: pd.DataFrame, timestamp_column: str) -> pd.Series:
     """
     values = frame.drop(columns=timestamp_column).notna()
     return values.groupby(frame[timestamp_column]).any().mean()
-
-
-def read_status(path: Path, scada_name: str) -> pd.DataFrame:
-    """One status file as a frame, with the turbine id from its file name."""
-    skip = status_header_index(read_head(path, HEADER_SEARCH_LINES))
-    frame = pd.read_csv(path, skiprows=skip, encoding="utf-8-sig", dtype=str)
-    return frame.assign(turbine=turbine_id_from_filename(path.name, scada_name))
 
 
 def event_counts(events: pd.DataFrame, statuses: list[str]) -> pd.DataFrame:

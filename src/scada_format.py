@@ -5,7 +5,10 @@ import re
 from itertools import islice
 from pathlib import Path
 
+import pandas as pd
+
 COMMENT = "#"
+HEADER_SEARCH_LINES = 50
 FILE_TYPES = {"Turbine_Data_": "turbine_data", "Status_": "status"}
 TURBINE_FILE_GLOB = "Turbine_Data_*.csv"
 STATUS_FILE_GLOB = "Status_*.csv"
@@ -92,3 +95,30 @@ def status_header_index(lines: list[str]) -> int:
 def parse_columns(header_line: str) -> list[str]:
     """Split a (possibly commented) CSV header line into column names."""
     return next(csv.reader([header_line.lstrip(COMMENT).strip()]))
+
+
+def file_columns(path: Path) -> list[str]:
+    """Column names of one turbine data file (header is a comment line)."""
+    lines = read_head(path, HEADER_SEARCH_LINES)
+    return parse_columns(lines[header_line_index(lines)])
+
+
+def read_signals(path: Path, columns: list[str]) -> pd.DataFrame:
+    """The given columns of one turbine data file (header is a comment line)."""
+    lines = read_head(path, HEADER_SEARCH_LINES)
+    index = header_line_index(lines)
+    return pd.read_csv(
+        path,
+        skiprows=index + 1,
+        header=None,
+        names=parse_columns(lines[index]),
+        usecols=columns,
+        encoding="utf-8-sig",
+    )
+
+
+def read_status(path: Path, scada_name: str) -> pd.DataFrame:
+    """One status file as a frame, with the turbine id from its file name."""
+    skip = status_header_index(read_head(path, HEADER_SEARCH_LINES))
+    frame = pd.read_csv(path, skiprows=skip, encoding="utf-8-sig", dtype=str)
+    return frame.assign(turbine=turbine_id_from_filename(path.name, scada_name))

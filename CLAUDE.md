@@ -8,7 +8,8 @@ Guidance for Claude Code when working in this repository.
 milestones in order; §11 logs every milestone and change. `README.md` holds
 results, limitations and "Deviations from spec". Read both before changing
 behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
-(inspection; decisions in the README "Data inspection decisions").
+(inspection; decisions in the README "Data inspection decisions"), §7.4
+(load, events, clean).
 
 ## Package management: uv only
 
@@ -23,6 +24,7 @@ behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 make setup     # uv sync
 make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
 make inspect   # raw structure, column coverage, events (~1 min)
+make data      # load_scada -> events -> clean (~9 min, order matters)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -33,7 +35,8 @@ Makefile target in its milestone.
 ## Module map
 
 - `src/config.py`: `load_config`, `farm_names`, `farm_raw_dir`,
-  `scada_archives`, `scada_dirs` (per farm, shared folders listed once).
+  `farm_processed_dir`, `scada_archives`, `scada_dirs` (per farm, shared
+  folders listed once).
   `config.yaml` holds every path, URL, MD5, column name and threshold; no
   hard-coded values in scripts.
 - `src/download.py`: `download_farm` per farm: MD5-checked `.part`
@@ -42,10 +45,18 @@ Makefile target in its milestone.
 - `src/scada_format.py`: Greenbyte export layout: file discovery
   (`turbine_data_files`, `status_files`, `group_by_turbine`), header
   detection (data header = last `#` line, status header = first plain
-  line), turbine ids `T01` from `<scada_name>_<N>_` (padded or not).
+  line), turbine ids `T01` from `<scada_name>_<N>_` (padded or not),
+  readers `file_columns`, `read_signals`, `read_status`.
+- `src/static_data.py`: `read_static` → static table indexed by turbine
+  id (specs, location, UTC commissioning date).
 - `src/inspect_data.py`: §7.3 decision gate, printed output; testable
-  helpers `read_signals`, `filled_fraction`, `read_status`,
-  `event_counts`, `read_table`.
+  helpers `filled_fraction`, `event_counts`, `read_table`.
+- `src/load_scada.py` → `data/processed/<farm>/<T>.parquet` (timestamp,
+  turbine_id, core + component signals). `src/events.py` →
+  `data/processed/<farm>/events.parquet` (turbine_id, start, end, status,
+  code, message, iec_category, component). `src/clean.py` adds
+  `air_density`, `yaw_misalignment`, `is_normal` in place (needs
+  events.parquet).
 
 ## Rules (spec §8)
 
@@ -79,3 +90,8 @@ Makefile target in its milestone.
   code, message.
 - `fault_labels` are exact messages per component; there are no
   main-bearing fault messages.
+- Wind direction = nacelle position + vane angle (not independent), so
+  `yaw_misalignment` is the vane's relative wind angle.
+- pandas 3: string columns keep NaN (not None) for missing values; parquet
+  timestamps may not be ns, so convert with `.to_numpy("datetime64[ns]")`
+  before numpy comparisons.

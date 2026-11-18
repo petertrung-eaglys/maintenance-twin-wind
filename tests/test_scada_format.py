@@ -6,12 +6,15 @@ import pytest
 
 from src.scada_format import (
     classify_file,
+    file_columns,
     format_turbine_id,
     group_by_turbine,
     group_files,
     header_line_index,
     parse_columns,
     read_head,
+    read_signals,
+    read_status,
     status_files,
     status_header_index,
     turbine_data_files,
@@ -131,6 +134,41 @@ def test_data_and_status_files_keep_folder_order_and_split_by_type(
         [early[0], late[0]],
         [early[1]],
     )
+
+
+STATUS_FILE = (
+    "# Exported by Greenbyte\r\n"
+    "# Turbine: Penmanshiel 02\r\n"
+    "Timestamp start,Timestamp end,Duration,Status,Code,Message,\r\n"
+    "2022-01-01 00:00:00,2022-01-01 01:00:00,01:00:00,Stop,10,Low oil,\r\n"
+    "2022-01-02 00:00:00,-,-,Informational,1,Run,\r\n"
+)
+
+
+def test_file_columns_reads_commented_header(tmp_path: Path) -> None:
+    path = tmp_path / "Turbine_Data_K_1_x.csv"
+    path.write_bytes(b"# meta\r\n# Date and time,Power (kW)\r\n2022,1\r\n")
+
+    assert file_columns(path) == ["Date and time", "Power (kW)"]
+
+
+def test_read_signals_reads_only_given_columns(tmp_path: Path) -> None:
+    path = tmp_path / "Turbine_Data_K_1_x.csv"
+    path.write_bytes(b"# meta\r\n# t,a,b\r\n1,2,3\r\n4,5,6\r\n")
+
+    assert read_signals(path, ["t", "b"]).to_dict("list") == {"t": [1, 4], "b": [3, 6]}
+
+
+def test_read_status_parses_plain_header_and_adds_turbine(tmp_path: Path) -> None:
+    path = tmp_path / "Status_Penmanshiel_02_x.csv"
+    path.write_bytes(STATUS_FILE.encode())
+
+    frame = read_status(path, "Penmanshiel")
+
+    assert frame[["Status", "Message", "turbine"]].values.tolist() == [
+        ["Stop", "Low oil", "T02"],
+        ["Informational", "Run", "T02"],
+    ]
 
 
 def test_group_by_turbine_keeps_file_order_per_turbine() -> None:

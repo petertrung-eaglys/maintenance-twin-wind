@@ -642,3 +642,19 @@ and the Kelmarsh repo tag the code was derived from.
   no main-bearing messages); Penmanshiel layout deviations logged.
 - `config.yaml`: `component_signals`, `events.fault_statuses`,
   `fault_labels`.
+
+### Milestone 7.4: load, events, clean (2026-11-18)
+
+- `src/load_scada.py` ported per farm: core and component signals into
+  `data/processed/<farm>/<T>.parquet`, most complete row per timestamp.
+- `src/events.py`: all status rows de-duplicated into
+  `data/processed/<farm>/events.parquet` with a `component` column from
+  `fault_labels` (Stop/Warning only).
+- `src/clean.py`: `air_density`, `yaw_misalignment` (confirmed to be the
+  nacelle vane's relative angle) and `is_normal` (operating-range rules,
+  commercial operations date from the static file, no Stop event active;
+  missing pitch accepted). `src/static_data.py` reads the static file.
+- MM82 rated wind speed 14.0 m/s estimated from data. `pyarrow` added.
+  `make data` target (about 9 minutes).
+- Acceptance: 20 turbines, 8.6 million rows, 72–81 % normal per turbine;
+  fault events per farm and component printed and match §7.3.

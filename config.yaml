@@ -10,6 +10,7 @@ farms:
   kelmarsh:
     code: KLM                   # prefix for farm-scoped ids: KLM_T01
     scada_name: Kelmarsh        # farm name in the SCADA file names
+    static_file: Kelmarsh_WT_static.csv
     dataset:
       title: "Kelmarsh wind farm data"
       doi: "10.5281/zenodo.16807551"
@@ -63,6 +64,7 @@ farms:
   penmanshiel:
     code: PEN
     scada_name: Penmanshiel
+    static_file: Penmanshiel_WT_static.csv
     dataset:
       title: "Penmanshiel wind farm data"
       doi: "10.5281/zenodo.16807304"
@@ -182,9 +184,28 @@ component_signals:
   generator_bearing_rear_temp: "Generator bearing rear temperature (°C)"
   stator_temp: "Stator temperature 1 (°C)"
   nacelle_temp: "Nacelle temperature (°C)"
+sampling:
+  interval_minutes: 10
+cleaning:
+  # is_normal rules (clean.py); required signals must all be present
+  required: [wind_speed, wind_direction, ambient_temp, power]
+  min_wind_speed: 3.0
+  max_wind_speed: 25.0
+  max_pitch_deg: 5.0           # only checked below rated wind speed
+  min_power_kw: 0.0
+  standard_pressure_pa: 101325.0
+  # Per turbine model (static file "Model"). MM92 from the Kelmarsh repo
+  # (first bin at 99 % of rated power). MM82 estimated from 2019-2021 data:
+  # 98 % of rated at 14-15 m/s, and median pitch there is 7 deg, as at the
+  # MM92's 12 m/s.
+  rated_wind_speed:
+    MM92: 12.0
+    MM82: 14.0
 events:
   # Status values that can label faults (Informational rows are not faults)
   fault_statuses: [Stop, Warning]
+  # Rows overlapping an event of this status are not normal operation
+  stop_status: Stop
 fault_labels:
   # component -> exact Stop/Warning messages that label a fault of it,
   # chosen from the inspect_data.py event counts. Left out on purpose:

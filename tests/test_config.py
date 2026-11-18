@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 from src.config import (
     farm_names,
+    farm_processed_dir,
     farm_raw_dir,
     load_config,
     scada_archives,
@@ -50,6 +51,12 @@ def test_farm_names_keep_config_order() -> None:
 
 def test_farm_raw_dir_is_farm_folder_under_raw() -> None:
     assert farm_raw_dir(SYNTHETIC, "beta") == Path("raw/beta")
+
+
+def test_farm_processed_dir_is_farm_folder_under_processed() -> None:
+    config = {"paths": {"processed": "processed"}}
+
+    assert farm_processed_dir(config, "beta") == Path("processed/beta")
 
 
 def test_scada_archives_are_entries_with_extract_to() -> None:
