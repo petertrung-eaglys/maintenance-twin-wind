@@ -32,62 +32,75 @@ make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
 
-Scripts run standalone as `uv run python -m src.<name>`; each gets a
-Makefile target in its milestone.
+Scripts run standalone as `uv run python -m src.<package>.<name>`; each
+gets a Makefile target in its milestone.
 
 ## Module map
+
+`src/` is grouped by concern: `data/` (raw files → clean Parquet),
+`graph/` (the RDF graph), `models/` (normal-behaviour models). Tests stay
+flat in `tests/` (`test_<module>.py`).
 
 - `src/config.py`: `load_config`, `farm_names`, `farm_raw_dir`,
   `farm_processed_dir`, `scada_archives`, `scada_dirs` (per farm, shared
   folders listed once).
   `config.yaml` holds every path, URL, MD5, column name and threshold; no
   hard-coded values in scripts.
-- `src/download.py`: `download_farm` per farm: MD5-checked `.part`
-  streaming (skips valid files), unzip each archive into its `extract_to`
-  folder unless all its members already exist there.
-- `src/scada_format.py`: Greenbyte export layout: file discovery
+
+`src/data/`:
+
+- `download.py`: `download_farm` per farm: MD5-checked `.part` streaming
+  (skips valid files), unzip each archive into its `extract_to` folder
+  unless all its members already exist there.
+- `scada_format.py`: Greenbyte export layout: file discovery
   (`turbine_data_files`, `status_files`, `group_by_turbine`), header
   detection (data header = last `#` line, status header = first plain
   line), turbine ids `T01` from `<scada_name>_<N>_` (padded or not),
   readers `file_columns`, `read_signals`, `read_status`.
-- `src/static_data.py`: `read_static` → static table indexed by turbine
-  id (specs, location, UTC commissioning date); `read_mapping` → both
-  farms' signal mappings with the same column names.
-- `src/graph_utils.py`: the only module that reads the graph. Farm-scoped
-  IRI helpers (`turbine_iri("KLM", "T01")`, `component_iri`,
-  `sensor_iri`, `fault_event_iri`, `source_iri`), SPARQL `*_QUERY`
-  constants and `get_*` lookups binding `farm_code` and `turbine_id`.
-- `src/modelling.py`: §7.6 conventions shared by every variant:
+- `static_data.py`: `read_static` → static table indexed by turbine id
+  (specs, location, UTC commissioning date); `read_mapping` → both farms'
+  signal mappings with the same column names.
+- `inspect_data.py`: §7.3 decision gate, printed output; testable helpers
+  `filled_fraction`, `event_counts`, `read_table`.
+- `load_scada.py` → `data/processed/<farm>/<T>.parquet` (timestamp,
+  turbine_id, core + component signals). `events.py` →
+  `data/processed/<farm>/events.parquet` (turbine_id, start, end, status,
+  code, message, iec_category, source_file, component). `clean.py` adds
+  `air_density`, `yaw_misalignment`, `is_normal` in place (needs
+  events.parquet).
+
+`src/graph/`:
+
+- `graph_utils.py`: the only module that reads the graph. Farm-scoped IRI
+  helpers (`turbine_iri("KLM", "T01")`, `component_iri`, `sensor_iri`,
+  `fault_event_iri`, `source_iri`), SPARQL `*_QUERY` constants and `get_*`
+  lookups binding `farm_code` and `turbine_id`. Model nodes: `add_model`
+  (replaces), `get_models`, `get_model_inputs`; IRIs
+  `kt:<Class>_<FARM>_<T>_<variant>`.
+- `build_ontology.py`: `COMPONENTS` (component key → class) and
+  `SIGNAL_SEMANTICS` (signal → component, observable, unit); builds the
+  whole graph from `FarmSources` per farm (testable without disk).
+
+`src/models/`:
+
+- `modelling.py`: §7.6 conventions shared by every variant:
   `NormalBehaviourModel` (`fit(train_frames: Mapping[tid, DataFrame])`,
   `predict(frame)`), `split_masks`, `evaluate`, `prediction_column`
   (`expected_<target>_<variant>`), `turbine_paths`, `with_turbine_specs`,
   `register_model` (graph node + metrics record), `merge_metrics`.
-- `src/binned.py`: method of bins (`binned_means`, `interpolate`).
-- `src/physics_power.py`: `PhysicsPowerModel` (Cp(v_n) per turbine type,
+- `binned.py`: method of bins (`binned_means`, `interpolate`).
+- `residual.py`: `ResidualModel` (base model + LightGBM residual, skips
+  rows where the base is NaN), base of every hybrid model.
+- `power_baseline.py`: §7.7 LightGBM baseline; `config.yaml`
+  `models.power_baseline` holds inputs, features, target, constraints.
+- `physics_power.py`: `PhysicsPowerModel` (Cp(v_n) per turbine type,
   aerodynamic bins only, uses each turbine's rotor area) and
   `HybridPowerModel` (physics + LightGBM residual per turbine).
-- `src/residual.py`: `ResidualModel` (base model + LightGBM residual,
-  skips rows where the base is NaN), base of both hybrid models.
-- `src/pitch.py`: `PhysicsPitchModel` (binned pitch(v_n) per turbine type,
-  NaN below rated wind speed), `HybridPitchModel`; metrics in degrees.
-- `src/yaw.py`: `YawModel` (per turbine, `a·cos^k(γ − γ₀)` of the power
+- `pitch.py`: `PhysicsPitchModel` (binned pitch(v_n) per turbine type, NaN
+  below rated wind speed), `HybridPitchModel`; metrics in degrees.
+- `yaw.py`: `YawModel` (per turbine, `a·cos^k(γ − γ₀)` of the power
   ratio), `fit_offset`, `peak_drop` (identified flag), `offset_windows` →
   `data/processed/<farm>/yaw_offsets.parquet`.
-- `src/power_baseline.py`: §7.7 LightGBM baseline; `config.yaml`
-  `models.power_baseline` holds inputs, features, target, constraints.
-  Model nodes: `graph_utils.add_model` (replaces), `get_models`,
-  `get_model_inputs`; IRIs `kt:<Class>_<FARM>_<T>_<variant>`.
-- `src/build_ontology.py`: `COMPONENTS` (component key → class) and
-  `SIGNAL_SEMANTICS` (signal → component, observable, unit); builds the
-  whole graph from `FarmSources` per farm (testable without disk).
-- `src/inspect_data.py`: §7.3 decision gate, printed output; testable
-  helpers `filled_fraction`, `event_counts`, `read_table`.
-- `src/load_scada.py` → `data/processed/<farm>/<T>.parquet` (timestamp,
-  turbine_id, core + component signals). `src/events.py` →
-  `data/processed/<farm>/events.parquet` (turbine_id, start, end, status,
-  code, message, iec_category, source_file, component). `src/clean.py` adds
-  `air_density`, `yaw_misalignment`, `is_normal` in place (needs
-  events.parquet).
 
 ## Rules (spec §8)
 
@@ -95,11 +108,13 @@ Makefile target in its milestone.
   Record data deviations in the README.
 - Tests use small synthetic data, never the network or real data.
 - The RDF graph (from §7.5) is the source of structural truth, read only
-  through `src/graph_utils.py`.
+  through `src/graph/graph_utils.py`.
 - Per-turbine training interface: `fit(train_frames)` takes a mapping
   turbine id → DataFrame (federated-learning hook).
 - `logging` for script output; `print` only for acceptance output.
-- Never commit `data/` or `models/`. One commit per milestone, 50/70 format.
+- Never commit `data/` or `models/` (top level; `.gitignore` anchors them
+  as `/data/`, `/models/` so the `src/data/` and `src/models/` packages are
+  tracked). One commit per milestone, 50/70 format.
 
 ## Known data gotchas (from the Kelmarsh repo)
 

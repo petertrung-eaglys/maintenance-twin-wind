@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from src.config import farm_names, farm_processed_dir, load_config, scada_dirs
-from src.scada_format import read_status, status_files
+from src.data.scada_format import read_status, status_files
 
 logger = logging.getLogger(__name__)
 

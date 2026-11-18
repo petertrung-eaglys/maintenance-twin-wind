@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.scada_format import format_turbine_id
+from src.data.scada_format import format_turbine_id
 
 STATIC_COLUMNS = {
     "Title": "title",

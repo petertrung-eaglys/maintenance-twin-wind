@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from rdflib import Graph
 
-from src.build_ontology import FarmSources, build_graph
+from src.graph.build_ontology import FarmSources, build_graph
 
 SIGNALS = {"power": "Power (kW)", "wind_speed": "Wind speed (m/s)"}
 COMPONENT_SIGNALS = {"gear_oil_temp": "Gear oil temperature (°C)"}

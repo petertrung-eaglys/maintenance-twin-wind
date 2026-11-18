@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.yaw import (
+from src.models.yaw import (
     YawModel,
     cosine_power_ratio,
     fit_offset,

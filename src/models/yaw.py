@@ -25,10 +25,10 @@ import pandas as pd
 from rdflib import Graph
 from scipy.optimize import curve_fit
 
-from src.binned import binned_means, interpolate
 from src.config import farm_names, farm_processed_dir, load_config
-from src.graph_utils import get_turbines, load_graph, save_graph
-from src.modelling import (
+from src.graph.graph_utils import get_turbines, load_graph, save_graph
+from src.models.binned import binned_means, interpolate
+from src.models.modelling import (
     evaluate,
     merge_metrics,
     model_id_of,
@@ -36,7 +36,7 @@ from src.modelling import (
     split_masks,
     turbine_paths,
 )
-from src.physics_power import normalised_wind_speed
+from src.models.physics_power import normalised_wind_speed
 
 logger = logging.getLogger(__name__)
 

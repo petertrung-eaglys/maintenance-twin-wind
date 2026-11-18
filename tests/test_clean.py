@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.clean import (
+from src.data.clean import (
     add_cleaning_columns,
     air_density,
     normal_mask,

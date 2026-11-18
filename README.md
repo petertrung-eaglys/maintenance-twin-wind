@@ -70,7 +70,7 @@ make ontology     # build ontology/wind_twin.ttl (about 2 s)
 The RDF graph `ontology/wind_twin.ttl` (committed) is the source of
 structural truth: later steps and the app discover farms, turbines,
 components, sensors and Parquet paths through the SPARQL queries in
-`src/graph_utils.py`, not through `config.yaml`. `make ontology` rewrites
+`src/graph/graph_utils.py`, not through `config.yaml`. `make ontology` rewrites
 the whole file, so steps that add models or alerts must run again after it.
 
 ```bash
@@ -87,8 +87,10 @@ metrics, `prov:generatedAtTime`) into the graph, and the metrics into
 `models/metrics.json`. The yaw step also writes the rolling-window
 misalignment estimates to `data/processed/<farm>/yaw_offsets.parquet`.
 
-Every pipeline script runs standalone with `uv run python -m src.<name>`
-and has a Makefile target (added per milestone).
+Every pipeline script runs standalone with
+`uv run python -m src.<package>.<name>` and has a Makefile target (added
+per milestone). `src/` is grouped by concern: `data/` (raw files to clean
+Parquet), `graph/` (the RDF graph) and `models/` (normal-behaviour models).
 
 ## Data inspection decisions (§7.3)
 
@@ -416,7 +418,7 @@ make lint         # uv run ruff check .
 - Events (§7.4): `events.parquet` keeps every status (including
   Informational), de-duplicated on turbine, start, status, code and
   message; `component` is set only for Stop/Warning rows.
-- New `src/static_data.py` reads the static file (drops empty rows,
+- New `src/data/static_data.py` reads the static file (drops empty rows,
   day-first dates, turbine ids from titles). `config.yaml` gained
   `farms.*.static_file`, `sampling`, `cleaning` (with `required` and
   per-model `rated_wind_speed`) and `events.stop_status`.
@@ -495,7 +497,7 @@ make lint         # uv run ruff check .
     `models.power_hybrid`. `scipy` added explicitly (approved; it was
     already installed through LightGBM).
   - Shared registration moved to `modelling.py` (`register_model`,
-    `metrics_entry`, `model_id_of`); `src/binned.py` holds the method of
+    `metrics_entry`, `model_id_of`); `src/models/binned.py` holds the method of
     bins for reuse by the pitch model.
 - Pitch and yaw (§7.8):
   - The yaw model is **kept**, although spec §7.8 says to drop it when
@@ -527,7 +529,7 @@ make lint         # uv run ruff check .
     1). Pitch predictions are NaN below rated wind speed (measured wind
     speed, as in cleaning); the pitch curves are fitted on v_n.
   - The pitch hybrid has no wind-direction features (they overfitted; see
-    Results). `ResidualModel` (`src/residual.py`) is the shared
+    Results). `ResidualModel` (`src/models/residual.py`) is the shared
     physics-plus-LightGBM-residual class; `HybridPowerModel` (clips to
     [0, rated]) and `HybridPitchModel` build on it. It skips rows where
     the physics model is undefined (NaN).

@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from rdflib import Graph
 
-from src.graph_utils import (
+from src.graph.graph_utils import (
     KT,
     PROV,
     add_model,

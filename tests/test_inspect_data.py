@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.inspect_data import (
+from src.data.inspect_data import (
     event_counts,
     files_missing_count,
     filled_fraction,

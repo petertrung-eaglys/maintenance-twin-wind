@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.static_data import read_mapping, read_static, turbine_id_from_title
+from src.data.static_data import read_mapping, read_static, turbine_id_from_title
 
 STATIC = (
     "﻿Wind Farm,Title,Alternative Title,Identity,Manufacturer,Model,"

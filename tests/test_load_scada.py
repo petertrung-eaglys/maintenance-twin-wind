@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.load_scada import (
+from src.data.load_scada import (
     all_signals,
     load_turbine,
     missing_percent,

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.events import fault_counts, message_components, tidy_events
+from src.data.events import fault_counts, message_components, tidy_events
 
 LABELS = {"gearbox": ["Low gearbox oil pressure"], "yaw": ["Yaw error"]}
 STATUSES = ["Stop", "Warning"]

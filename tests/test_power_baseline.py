@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.power_baseline import LightGBMPowerModel, train_turbine
+from src.models.power_baseline import LightGBMPowerModel, train_turbine
 
 RATED = 2050.0
 SEED = 42

@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from rdflib import Graph
 
-from src.graph_utils import (
+from src.graph.graph_utils import (
     add_model,
     get_sensors,
     get_turbines,

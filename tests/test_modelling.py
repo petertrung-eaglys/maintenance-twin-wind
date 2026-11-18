@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from rdflib import Graph
 
-from src.modelling import (
+from src.models.modelling import (
     add_direction_features,
     evaluate,
     merge_metrics,

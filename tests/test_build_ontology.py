@@ -6,7 +6,7 @@ from pathlib import Path
 
 from rdflib import RDF, RDFS, Graph, Literal
 
-from src.build_ontology import (
+from src.graph.build_ontology import (
     COMPONENTS,
     SIGNAL_SEMANTICS,
     add_schema,
@@ -14,7 +14,7 @@ from src.build_ontology import (
     mapping_entry,
     strip_unit,
 )
-from src.graph_utils import (
+from src.graph.graph_utils import (
     KT,
     PROV,
     component_iri,

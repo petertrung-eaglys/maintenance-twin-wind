@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.scada_format import (
+from src.data.scada_format import (
     classify_file,
     file_columns,
     format_turbine_id,

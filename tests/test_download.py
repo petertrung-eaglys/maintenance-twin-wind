@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.download import (
+from src.data.download import (
     download_farm,
     ensure_file,
     extract,

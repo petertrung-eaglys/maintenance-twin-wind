@@ -19,10 +19,10 @@ import numpy as np
 import pandas as pd
 from rdflib import Graph
 
-from src.binned import binned_means, interpolate
 from src.config import farm_names, load_config
-from src.graph_utils import get_turbines, load_graph, save_graph
-from src.modelling import (
+from src.graph.graph_utils import get_turbines, load_graph, save_graph
+from src.models.binned import binned_means, interpolate
+from src.models.modelling import (
     add_direction_features,
     evaluate,
     merge_metrics,
@@ -32,8 +32,8 @@ from src.modelling import (
     split_masks,
     turbine_paths,
 )
-from src.physics_power import normalised_wind_speed
-from src.residual import ResidualModel
+from src.models.physics_power import normalised_wind_speed
+from src.models.residual import ResidualModel
 
 logger = logging.getLogger(__name__)
 

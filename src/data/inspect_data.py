@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from src.config import farm_names, farm_raw_dir, load_config, scada_dirs
-from src.scada_format import (
+from src.data.scada_format import (
     HEADER_SEARCH_LINES,
     file_columns,
     group_files,

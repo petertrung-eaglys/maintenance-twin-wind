@@ -23,7 +23,13 @@ from src.config import (
     scada_archives,
     scada_dirs,
 )
-from src.graph_utils import (
+from src.data.scada_format import (
+    group_by_turbine,
+    status_files,
+    turbine_data_files,
+)
+from src.data.static_data import read_mapping, read_static
+from src.graph.graph_utils import (
     GEO,
     KT,
     PROV,
@@ -42,12 +48,6 @@ from src.graph_utils import (
     source_iri,
     turbine_iri,
 )
-from src.scada_format import (
-    group_by_turbine,
-    status_files,
-    turbine_data_files,
-)
-from src.static_data import read_mapping, read_static
 
 logger = logging.getLogger(__name__)
 

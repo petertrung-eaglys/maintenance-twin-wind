@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.pitch import HybridPitchModel, PhysicsPitchModel, above_rated
+from src.models.pitch import HybridPitchModel, PhysicsPitchModel, above_rated
 
 PHYSICS = {
     "reference_air_density": 1.225,

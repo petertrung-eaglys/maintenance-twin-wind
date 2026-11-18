@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.binned import binned_means, interpolate
-from src.physics_power import (
+from src.models.binned import binned_means, interpolate
+from src.models.physics_power import (
     BETZ_LIMIT,
     HybridPowerModel,
     PhysicsPowerModel,

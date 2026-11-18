@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
 
-from src.modelling import NormalBehaviourModel
+from src.models.modelling import NormalBehaviourModel
 
 
 class ResidualModel:

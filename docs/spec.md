@@ -727,3 +727,16 @@ and the Kelmarsh repo tag the code was derived from.
   Penmanshiel turbines (+2.4 to +9.4°, k 2.2–3.0) and none of the 6
   Kelmarsh turbines (no peak in the data); PEN T08 offset jumps from about
   0° to 10° in mid-2022.
+
+### Refactor: `src/` grouped by concern (2026-11-18)
+
+- Modules moved (unchanged) into packages: `src/data/` (download,
+  scada_format, static_data, inspect_data, load_scada, events, clean),
+  `src/graph/` (graph_utils, build_ontology) and `src/models/` (modelling,
+  binned, residual, power_baseline, physics_power, pitch, yaw);
+  `src/config.py` stays at the top. Scripts run as
+  `python -m src.<package>.<name>`; Makefile targets updated.
+- Tests stay flat in `tests/`; only their import lines changed (no
+  assertion changes). Entries above keep the old paths.
+- `.gitignore`: `/data/` and `/models/` anchored to the repository root,
+  so `src/data/` and `src/models/` are not ignored.

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import farm_names, farm_processed_dir, farm_raw_dir, load_config
-from src.static_data import read_static
+from src.data.static_data import read_static
 
 logger = logging.getLogger(__name__)
 
