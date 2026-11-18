@@ -114,5 +114,15 @@ def test_shipped_config_declares_core_signals() -> None:
     assert set(load_config()["signals"]) == CORE_SIGNAL_KEYS
 
 
+def test_shipped_fault_labels_map_each_message_to_one_component() -> None:
+    labels = load_config()["fault_labels"]
+    messages = [m for ms in labels.values() for m in ms]
+
+    assert (set(labels), len(messages)) == (
+        {"gearbox", "generator", "pitch", "yaw"},
+        len(set(messages)),
+    )
+
+
 def test_shipped_config_trains_up_to_end_of_2021() -> None:
     assert load_config()["train_test_split"]["train_end"] == "2021-12-31 23:50"

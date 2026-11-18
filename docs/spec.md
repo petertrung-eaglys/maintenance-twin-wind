@@ -626,3 +626,19 @@ and the Kelmarsh repo tag the code was derived from.
 - Penmanshiel layout findings (zero-padded turbine numbers, 2023 period
   files, large 2024 files, ~62 GB unzipped) recorded in the README
   deviations.
+
+### Milestone 7.3: inspection decision gate (2026-11-18)
+
+- `src/scada_format.py` ported: turbine ids from `scada_name` (padded or
+  not), `status_files`, `status_header_index` (status header is a plain
+  line). `src/inspect_data.py` ported per farm: file groups, head and
+  columns per year, missing columns per file and per farm, filled share
+  of timestamps per signal, static/mapping tables (`.xlsx` too), status
+  header and distinct Stop/Warning counts. `make inspect` target.
+- Decisions (README "Data inspection decisions"): all 15 configured
+  columns confirmed in both farms; all 8 component signals usable in both,
+  with Penmanshiel pitch, main-bearing and gear-oil values only from
+  mid-2018; `fault_labels` (35 messages → gearbox, generator, pitch, yaw;
+  no main-bearing messages); Penmanshiel layout deviations logged.
+- `config.yaml`: `component_signals`, `events.fault_statuses`,
+  `fault_labels`.

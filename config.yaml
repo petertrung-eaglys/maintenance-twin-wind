@@ -161,7 +161,7 @@ farms:
 scada:
   timestamp_column: "Date and time"   # timestamps are UTC (file metadata)
 signals:
-  # Confirmed for Kelmarsh 2016-2024; Penmanshiel pending inspect_data.py
+  # Confirmed by inspect_data.py in every turbine data file of both farms
   wind_speed: "Wind speed (m/s)"
   power: "Power (kW)"
   wind_direction: "Wind direction (°)"
@@ -169,5 +169,68 @@ signals:
   ambient_temp: "Ambient temperature (converter) (°C)"
   pitch: "Blade angle (pitch position) A (°)"
   rotor_speed: "Rotor speed (RPM)"
+component_signals:
+  # Confirmed by inspect_data.py in every turbine data file of both farms.
+  # Front/rear bearing = manufacturer "Axle bearing temperature 1/2" (main
+  # bearing). Penmanshiel has no values for the main-bearing and gear-oil
+  # temperatures (nor pitch) before mid-2018.
+  front_bearing_temp: "Front bearing temperature (°C)"
+  rear_bearing_temp: "Rear bearing temperature (°C)"
+  gear_oil_temp: "Gear oil temperature (°C)"
+  gear_oil_inlet_temp: "Gear oil inlet temperature (°C)"
+  generator_bearing_front_temp: "Generator bearing front temperature (°C)"
+  generator_bearing_rear_temp: "Generator bearing rear temperature (°C)"
+  stator_temp: "Stator temperature 1 (°C)"
+  nacelle_temp: "Nacelle temperature (°C)"
+events:
+  # Status values that can label faults (Informational rows are not faults)
+  fault_statuses: [Stop, Warning]
+fault_labels:
+  # component -> exact Stop/Warning messages that label a fault of it,
+  # chosen from the inspect_data.py event counts. Left out on purpose:
+  # sensor/communication defects (PT100, encoder, "implausible" angle,
+  # CMS comm.), routine operation (battery tests, heating, pitch battery
+  # charging cycles, oil flushing), generator fan overloads and "High yaw
+  # motor current" (1,272 Kelmarsh warnings: too frequent to be faults).
+  # No message concerns the main bearing.
+  gearbox:
+    - High temp. gear bearing 1
+    - High temp. gear bearing 2
+    - Particle Gear Alarm 10min
+    - Particle Gear Alarm 24h
+    - Oil filter gear choked
+    - Low gearbox oil pressure
+    - Missing gear oil (high rpm)
+    - Missing gear oil (low rpm)
+    - Overload gear oil pump
+    - Overload fan oil cooler gear
+    - Overload gear bypass filter
+    - Reduced power gearbox
+    - Implausible gear speed
+  generator:
+    - High temp. gen. bearing 1
+    - Max. temp. gen. bearing 1
+    - Service generator brushes
+    - Thermistor generator
+  pitch:
+    - Pitch run-away (hub box v.>=4)
+    - Pitch angle deviation
+    - Pitch current asymmetry
+    - Pitch too slow BP180
+    - Pitch error
+    - Error pitch converter 1
+    - Error pitch converter 2
+    - Error pitch converter 3
+    - Error lubrication pump pitch
+    - Charging circuit pitch
+    - Overload fan pitch motor
+  yaw:
+    - Uncontrolled yaw movement
+    - Yaw error
+    - Yaw speed high
+    - Yaw velocity too low
+    - High yaw load
+    - Overload yaw motor 1&3
+    - Overload yaw motor 2&4
 train_test_split:
   train_end: "2021-12-31 23:50"   # train 2016-2021, test 2022-2024

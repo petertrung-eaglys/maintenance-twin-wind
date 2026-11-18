@@ -7,7 +7,8 @@ Guidance for Claude Code when working in this repository.
 `docs/spec.md` is the authoritative specification. Work through its §7
 milestones in order; §11 logs every milestone and change. `README.md` holds
 results, limitations and "Deviations from spec". Read both before changing
-behaviour. Done so far: §7.1 (scaffold), §7.2 (download).
+behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
+(inspection; decisions in the README "Data inspection decisions").
 
 ## Package management: uv only
 
@@ -21,6 +22,7 @@ behaviour. Done so far: §7.1 (scaffold), §7.2 (download).
 ```
 make setup     # uv sync
 make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
+make inspect   # raw structure, column coverage, events (~1 min)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -37,6 +39,13 @@ Makefile target in its milestone.
 - `src/download.py`: `download_farm` per farm: MD5-checked `.part`
   streaming (skips valid files), unzip each archive into its `extract_to`
   folder unless all its members already exist there.
+- `src/scada_format.py`: Greenbyte export layout: file discovery
+  (`turbine_data_files`, `status_files`, `group_by_turbine`), header
+  detection (data header = last `#` line, status header = first plain
+  line), turbine ids `T01` from `<scada_name>_<N>_` (padded or not).
+- `src/inspect_data.py`: §7.3 decision gate, printed output; testable
+  helpers `read_signals`, `filled_fraction`, `read_status`,
+  `event_counts`, `read_table`.
 
 ## Rules (spec §8)
 
@@ -59,4 +68,14 @@ Makefile target in its milestone.
 - Kelmarsh mapping lists `Power` in kWh; `Power (kW)` is 10-minute mean power.
 - Penmanshiel file names zero-pad turbine numbers (`Penmanshiel_01`);
   Kelmarsh does not (`Kelmarsh_1`). Penmanshiel 2023 WT01–10 has four
-  period files per turbine; 2024 files are ~3.8 GB each.
+  period files per turbine; 2024 files are ~3.8 GB each. Penmanshiel
+  repeats timestamps too (2023 and 2024), so "most complete row" applies.
+- Penmanshiel has no pitch, main-bearing or gear-oil values before
+  mid-2018; data starts 2016-06-06, before COD 2016-09-01.
+- `Penmanshiel_WT_static.csv` has 15 empty trailing rows and an empty
+  column. Mapping tables have different column names per farm.
+- Status headers end at `IEC category` (no contract-category columns).
+  Status exports repeat events: de-duplicate on turbine, start, status,
+  code, message.
+- `fault_labels` are exact messages per component; there are no
+  main-bearing fault messages.
