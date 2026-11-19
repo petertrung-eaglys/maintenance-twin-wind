@@ -7,7 +7,9 @@ import pytest
 from src.health.evaluate import (
     GROUP,
     chance_detection,
+    drift_cases,
     drift_table,
+    evaluate_scopes,
     match_alerts,
     merge_episodes,
     nearest_matches,
@@ -187,3 +189,69 @@ def test_drift_table_compares_each_year_with_the_calibration_year() -> None:
     assert drift[
         ["turbine_id", "target", "variant", "2022", "2023", "max_drift"]
     ].values.tolist() == [["T04", "gear_oil_temp", "baseline", 0.2, 4.0, 4.0]]
+
+
+def farm_events(*rows: tuple[str, str, str, str]) -> pd.DataFrame:
+    """Events (turbine, component, message, start) of farm KLM."""
+    return pd.DataFrame(
+        [
+            {
+                "event": f"E{i}",
+                "farm_code": "KLM",
+                "turbine_id": tid,
+                "component_key": component,
+                "message": message,
+                "start": ts(start),
+            }
+            for i, (tid, component, message, start) in enumerate(rows)
+        ]
+    )
+
+
+def test_evaluate_scopes_count_only_signal_events_in_the_signal_scope() -> None:
+    raw = farm_events(
+        ("T01", "gearbox", "Missing gear oil (low rpm)", "2022-03-01 00:00"),
+        ("T01", "gearbox", "High temp. gear bearing 1", "2022-06-01 00:00"),
+    )
+    groups = pd.DataFrame(
+        [["KLM", "gearbox", "ThermalModel", "gear_oil_temp", "pinn"]], columns=GROUP
+    )
+    none = alerts().reindex(columns=[*GROUP, "alert", "turbine_id", "start"])
+    days = pd.Series({("KLM", "T01"): 365.0})
+    signal = {"gear_oil_temp": ["High temp. gear bearing 1"]}
+
+    summary = evaluate_scopes(
+        none, raw, days, LOOKBACK, pd.Timedelta(days=7), groups, signal
+    )
+
+    assert summary.set_index("scope")["episodes"].to_dict() == {
+        "component": 2,
+        "signal": 1,
+    }
+
+
+def test_drift_cases_count_events_during_and_after_the_drift() -> None:
+    drifts = pd.DataFrame(
+        [
+            {
+                "model": "ThermalModel_KLM_T01_gear_oil_temp_pinn",
+                "farm_code": "KLM",
+                "turbine_id": "T01",
+                "component": "gearbox",
+                "target": "gear_oil_temp",
+                "start": ts("2022-01-01 00:00"),
+                "end": ts("2022-04-01 00:00"),
+            }
+        ]
+    )
+    raw = farm_events(
+        ("T01", "gearbox", "Missing gear oil (low rpm)", "2022-02-01 00:00"),
+        ("T01", "gearbox", "High temp. gear bearing 1", "2022-04-20 00:00"),
+        ("T01", "gearbox", "High temp. gear bearing 1", "2022-08-01 00:00"),  # late
+        ("T02", "gearbox", "High temp. gear bearing 1", "2022-02-01 00:00"),
+    )
+    signal = {"gear_oil_temp": ["High temp. gear bearing 1"]}
+
+    cases = drift_cases(drifts, raw, LOOKBACK, signal)
+
+    assert cases[["component_events", "signal_events"]].values.tolist() == [[2, 1]]

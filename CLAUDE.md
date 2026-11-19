@@ -12,7 +12,7 @@ behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (load, events, clean), §7.5 (ontology), §7.6–7.7 (modelling conventions,
 LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw),
 §7.9 (thermal models: physics, baseline, hybrid, PINN), §7.10 (alerts,
-evaluation).
+evaluation; then fleet-relative scores, drift alerts, curves).
 
 ## Package management: uv only
 
@@ -32,6 +32,7 @@ make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
 make train     # power, pitch, yaw (~2 min), thermal (~15 min); nice'd
 make alerts    # residual alerts -> graph, models/alerts.json (~15 s)
 make evaluate  # alerts vs fault events -> models/evaluation.json (~15 s)
+make curves    # detection vs false alarms, 6 thresholds -> models/curves.json
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -121,22 +122,29 @@ flat in `tests/` (`test_<module>.py`).
 - `thermal/` (§7.9; frames keyed by `turbine_key` `KLM_T01`, models shared
   across both farms): `features.py` (rolling-mean history features,
   `normal_target_rows`, `target_spec`), `physics.py`
-  (`ThermalPhysicsModel`: heat balance fitted on free-run error with
-  PyTorch, all turbines batched; `simulate` free run with restarts and
-  warm-up), `baseline.py` (`LightGBMThermalModel`), `pinn.py`
+  (`ThermalPhysicsModel`: heat balance with a cooler above a learned set
+  point, fitted on free-run error with PyTorch, all turbines batched;
+  `simulate` free run with restarts, warm-up and cooler), `baseline.py` (`LightGBMThermalModel`), `pinn.py`
   (`ThermalPINN`, `ode_residual`), `train.py` (orchestration, per-target
   saving, `--targets`).
 
 `src/health/` (§7.10):
 
-- `alerts.py`: `smoothed_residual`, `problem_score` (direction per model
-  class), `calibration_threshold`, `alert_periods`, `merge_periods`,
-  `yearly_means` (drift KPI), `yaw_alert_periods`; writes the graph and
-  `models/alerts.json`.
+- `scores.py`: `smoothed_residual` (optional `min_power`),
+  `problem_score` (direction per model class), `fleet_relative` (minus the
+  other turbines' median), `farm_scores` (every model of a farm, one
+  turbine read at a time).
+- `alerts.py`: `calibration_threshold`, `alert_periods`, `merge_periods`,
+  `yearly_means` (drift KPI), `drift_periods` (drift alerts),
+  `yaw_alert_periods`; writes the graph, `models/alerts.json` and
+  `models/drift_alerts.json`.
 - `evaluate.py`: `merge_episodes`, `match_alerts` (all pairs),
   `nearest_matches` (graph links), `chance_detection`, `summarise`
   (groups from the models, so models without alerts still appear),
-  `drift_table`; writes `models/evaluation.json`.
+  `evaluate_scopes` (component and signal scope), `drift_table`,
+  `drift_cases`; writes `models/evaluation.json`.
+- `curves.py`: `threshold_alerts` (alerts at one quantile), `lift`; writes
+  `models/curves.json`.
 
 ## Rules (spec §8)
 
@@ -207,6 +215,11 @@ flat in `tests/` (`test_<module>.py`).
   ML thermal alerts mostly follow slow drift (some real, e.g. KLM T04 gear
   oil +4–6 °C at power since 2023; some model extrapolation in warm
   years). Don't tune thresholds or windows on test detection results.
+  Even with fair curves and fleet-relative scores the lift stays near 0;
+  gearbox drift alerts flag the turbines with the most gearbox events
+  (p = 0.074), generator drift alerts are not specific.
+- Thermal LightGBM: a monotone constraint on ambient/nacelle temperature
+  was tried and removed (worse: nacelle temperature falls at high power).
 - Define functions above `if __name__ == "__main__":`; ruff does not flag
   a function appended below it (NameError at run time).
 - Thermal frames must stay sorted by timestamp and contiguous (the free

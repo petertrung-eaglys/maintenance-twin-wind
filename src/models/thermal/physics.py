@@ -4,9 +4,11 @@ A first-order lumped heat balance per turbine and temperature, per
 10-minute step (P in MW, w = rotor speed / scale):
 
     T[k+1] = T[k] + c + a P + b P^2 - (h0 + h1 w) (T[k] - T_nac)
+                  - h2 max(T[k] - T_set, 0)
 
 c is heat at standstill, a P + b P^2 the losses, h0 + h1 w the cooling
-(the forced-convection part grows with rotor speed); h0, h1 > 0. The
+(the forced-convection part grows with rotor speed) and h2 a cooler that
+works above the set point T_set (oil cooler, fans); h0, h1, h2 > 0. The
 parameters are fitted on the error of day-long free-run simulations, all
 turbines at once on the GPU (each turbine has its own parameters). The
 prediction is a free run from the inputs: it starts from the measured
@@ -24,9 +26,14 @@ from torch.nn.functional import softplus
 
 logger = logging.getLogger(__name__)
 
-PARAMETERS = ("c", "a", "b", "h0", "h1")
-# Raw start values; h = softplus(-3) ~ 0.05 per step (time constant ~3 h).
+PARAMETERS = ("c", "a", "b", "h0", "h1", "h2", "set_point")
+# Raw start values of the heat balance (also the PINN's ODE parameters);
+# h = softplus(-3) ~ 0.05 per step (time constant ~3 h).
 INITIAL_RAW = (0.0, 0.0, 0.0, -3.0, -3.0)
+# The cooler starts nearly off (softplus(-5) ~ 0.007) with its set point at
+# the turbine's median training temperature.
+INITIAL_COOLER_RAW = -5.0
+NO_COOLER = (0.0, float("inf"))
 
 
 def device_of(thermal: dict[str, Any]) -> torch.device:
@@ -60,12 +67,23 @@ def coefficients(
     return 1 - cooling, heat + cooling * reference
 
 
+def cooler(params: Mapping[str, float]) -> tuple[float, float]:
+    """(h2, set point) of the cooler; no cooler when the parameters have
+    none (models saved before it was added)."""
+    return params.get("h2", NO_COOLER[0]), params.get("set_point", NO_COOLER[1])
+
+
 def steady_state(
     params: Mapping[str, float], power_mw: float, speed: float, reference: float
 ) -> float:
     """Temperature where heating and cooling balance."""
     heat = params["c"] + params["a"] * power_mw + params["b"] * power_mw**2
-    return reference + heat / (params["h0"] + params["h1"] * speed)
+    cooling = params["h0"] + params["h1"] * speed
+    uncooled = reference + heat / cooling
+    gain, set_point = cooler(params)
+    if uncooled <= set_point:
+        return uncooled
+    return (heat + cooling * reference + gain * set_point) / (cooling + gain)
 
 
 def simulate(
@@ -74,10 +92,13 @@ def simulate(
     measured: np.ndarray,
     restart: np.ndarray,
     warmup: int,
+    cooler: tuple[float, float] = NO_COOLER,
 ) -> np.ndarray:
-    """Free run of T[k+1] = alpha[k] T[k] + beta[k]. The state restarts from
-    the measurement where `restart` is set or after missing inputs (NaN
-    state); the first `warmup` steps after a restart are NaN."""
+    """Free run of T[k+1] = alpha[k] T[k] + beta[k] - h2 max(T[k] - T_set, 0)
+    with cooler = (h2, T_set). The state restarts from the measurement where
+    `restart` is set or after missing inputs (NaN state); the first `warmup`
+    steps after a restart are NaN."""
+    gain, set_point = cooler
     out = []
     temp, steps = np.nan, 0
     rows = zip(
@@ -88,7 +109,8 @@ def simulate(
             temp, steps = m, 0
         out.append(temp if steps >= warmup else np.nan)
         steps += 1
-        temp = a * temp + b
+        excess = temp - set_point
+        temp = a * temp + b - (gain * excess if excess > 0 else 0.0)
     return np.array(out)
 
 
@@ -140,21 +162,26 @@ def rollout(
     start: torch.Tensor,
 ) -> torch.Tensor:
     """Free-run simulation of every sequence; theta holds the raw
-    parameters of each sequence's turbine, shape (n, 5)."""
+    parameters of each sequence's turbine, shape (n, 7): c, a, b, raw h0,
+    raw h1, raw h2, set point."""
     c, a, b = theta[:, 0], theta[:, 1], theta[:, 2]
-    h0, h1 = softplus(theta[:, 3]), softplus(theta[:, 4])
+    h0, h1, h2 = (softplus(theta[:, i]) for i in (3, 4, 5))
+    set_point = theta[:, 6]
     temp, out = start, [start]
     for k in range(power.shape[1] - 1):
         p = power[:, k]
         cooling = h0 + h1 * speed[:, k]
-        temp = temp + c + a * p + b * p**2 - cooling * (temp - reference[:, k])
+        cooled = h2 * torch.relu(temp - set_point)
+        change = c + a * p + b * p**2 - cooling * (temp - reference[:, k]) - cooled
+        temp = temp + change
         out.append(temp)
     return torch.stack(out, dim=1)
 
 
 def physical(raw: torch.Tensor) -> dict[str, float]:
-    """Raw parameters to c, a, b, h0, h1 (h0, h1 through softplus)."""
-    values = [*raw[:3].tolist(), *softplus(raw[3:]).tolist()]
+    """Raw parameters to c, a, b, h0, h1, h2, set point (h through
+    softplus)."""
+    values = [*raw[:3].tolist(), *softplus(raw[3:6]).tolist(), raw[6].item()]
     return dict(zip(PARAMETERS, values, strict=True))
 
 
@@ -197,8 +224,14 @@ class ThermalPhysicsModel:
             for name in parts[0]
         }
         index = torch.tensor(owner, device=device)
+        set_points = [
+            float(np.nanmedian(f[self.target])) if f[self.target].notna().any() else 0.0
+            for f in train_frames.values()
+        ]
         theta = torch.tensor(
-            [INITIAL_RAW] * len(keys), device=device, requires_grad=True
+            [[*INITIAL_RAW, INITIAL_COOLER_RAW, s] for s in set_points],
+            device=device,
+            requires_grad=True,
         )
         physics = self.thermal["physics"]
         optimiser = torch.optim.Adam([theta], lr=physics["learning_rate"])
@@ -235,13 +268,15 @@ class ThermalPhysicsModel:
         keys = frame["turbine_key"].unique()
         if len(keys) != 1:
             raise ValueError(f"expected one turbine per frame, got {keys}")
-        alpha, beta = coefficients(frame, self.params[keys[0]], self.thermal)
+        params = self.params[keys[0]]
+        alpha, beta = coefficients(frame, params, self.thermal)
         return simulate(
             alpha,
             beta,
             frame[self.target].to_numpy(float),
             restarts(frame["timestamp"], self.interval),
             self.thermal["physics"]["warmup_steps"],
+            cooler(params),
         )
 
     def to_dict(self) -> dict[str, dict[str, float]]:

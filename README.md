@@ -103,6 +103,7 @@ uv run python -m src.models.thermal.train --targets front_bearing_temp
 ```bash
 make alerts       # residual alerts for every model -> graph (~15 s)
 make evaluate     # match alerts to fault events (~15 s)
+make curves       # detection vs false alarms at 6 thresholds (~1 min)
 ```
 
 `make alerts` replaces each model's `kt:Alert` nodes in the graph and
@@ -110,8 +111,10 @@ writes `models/alerts.json` (threshold, alert count and yearly mean
 residual score per model). `make evaluate` links alerts to the fault
 events they precede (`kt:precedes`, `kt:leadTimeHours`), prints the
 summary per farm, component, target and variant, and writes
-`models/evaluation.json` (summary, episode counts, drift table). Run both
-after `make train`.
+`models/evaluation.json` (summary in both scopes, episode counts, drift
+table, drift alerts with the events after them); `make alerts` also writes
+the drift alerts to `models/drift_alerts.json`. `make curves` writes
+`models/curves.json`. Run them in this order after `make train`.
 
 Every pipeline script runs standalone with
 `uv run python -m src.<package>.<name>` and has a Makefile target (added
@@ -378,8 +381,10 @@ variant predicts from the operating inputs only (never from the measured
 temperature after a simulation start), so a component that runs hotter
 than normal shows up as a residual:
 
-- **physics:** heat balance `T[k+1] = T[k] + c + a·P + b·P² − (h₀ + h₁·ω)(T[k] − T_nac)`
-  per turbine (P in MW, ω = rotor speed / 15 rpm, h₀, h₁ > 0), fitted on
+- **physics:** heat balance
+  `T[k+1] = T[k] + c + a·P + b·P² − (h₀ + h₁·ω)(T[k] − T_nac) − h₂·max(T[k] − T_set, 0)`
+  per turbine (P in MW, ω = rotor speed / 15 rpm, h₀, h₁, h₂ > 0; the last
+  term is a cooler or fan that works above a learned set point), fitted on
   the error of day-long free-run simulations (PyTorch, all turbines at
   once, each with its own parameters); predicted as a free run that
   restarts from the measurement after gaps and is hidden for 6 h after a
@@ -391,40 +396,51 @@ than normal shows up as a residual:
 - **pinn:** one MLP per temperature for all 20 turbines (same features,
   rotor diameter as the turbine-type feature, a learned turbine
   embedding), loss = MSE + λ·MSE(ODE residual in °C/h) with learnable
-  heat-balance parameters per turbine, λ = 0.01, per-turbine batches.
+  heat-balance parameters per turbine (without the cooler term), λ = 0.01,
+  per-turbine batches.
 
 Mean test RMSE (°C, 2022–2024; all variants scored on the same normal rows,
 68k–131k per model):
 
 | Temperature | Farm | Physics | Baseline | Hybrid | PINN |
 |---|---|---|---|---|---|
-| Gear oil | KLM | 3.92 | **1.62** | 1.63 | 1.63 |
-| Gear oil | PEN | 4.22 | 1.48 | 1.49 | **1.46** |
-| Gear-oil inlet | KLM | 6.07 | 3.67 | 3.69 | **3.65** |
-| Gear-oil inlet | PEN | 7.81 | 5.38 | 5.41 | **5.32** |
-| Generator bearing front | KLM | 3.97 | 2.19 | 2.21 | **2.12** |
-| Generator bearing front | PEN | 4.37 | 3.31 | 3.34 | **3.16** |
-| Generator bearing rear | KLM | 3.19 | 2.56 | 2.57 | **2.41** |
-| Generator bearing rear | PEN | 2.82 | 1.79 | 1.82 | **1.69** |
-| Stator | KLM | 4.92 | 1.63 | 1.66 | **1.62** |
-| Stator | PEN | 5.57 | 1.95 | 1.98 | **1.94** |
-| Main bearing front | KLM | 4.73 | **1.54** | 1.56 | 1.59 |
-| Main bearing front | PEN | 4.49 | **2.04** | 2.06 | 2.06 |
-| Main bearing rear | KLM | 4.49 | **2.13** | 2.15 | 2.16 |
-| Main bearing rear | PEN | 4.56 | **2.11** | 2.13 | 2.12 |
-| **Mean** | both | 4.73 | 2.46 | 2.49 | **2.42** |
+| Gear oil | KLM | 3.27 | 1.62 | **1.61** | 1.63 |
+| Gear oil | PEN | 2.82 | 1.48 | **1.46** | **1.46** |
+| Gear-oil inlet | KLM | 5.52 | 3.67 | 3.67 | **3.65** |
+| Gear-oil inlet | PEN | 7.10 | 5.38 | 5.39 | **5.32** |
+| Generator bearing front | KLM | 3.48 | 2.19 | 2.20 | **2.12** |
+| Generator bearing front | PEN | 4.06 | 3.31 | 3.32 | **3.16** |
+| Generator bearing rear | KLM | 3.00 | 2.56 | 2.56 | **2.41** |
+| Generator bearing rear | PEN | 2.62 | 1.79 | 1.80 | **1.69** |
+| Stator | KLM | 3.77 | 1.63 | **1.60** | 1.62 |
+| Stator | PEN | 4.39 | 1.95 | **1.90** | 1.94 |
+| Main bearing front | KLM | 3.66 | **1.54** | 1.55 | 1.59 |
+| Main bearing front | PEN | 3.60 | 2.04 | **2.03** | 2.06 |
+| Main bearing rear | KLM | 3.80 | **2.13** | 2.14 | 2.16 |
+| Main bearing rear | PEN | 3.38 | 2.11 | **2.10** | 2.12 |
+| **Mean** | both | 3.93 | 2.46 | 2.46 | **2.42** |
 
-- The PINN is best on 92 of 140 turbine-temperature pairs (baseline 43,
-  hybrid 5); baseline, hybrid and PINN are within 0.06 °C of each other
+- The PINN is best on 73 of 140 turbine-temperature pairs (hybrid 47,
+  baseline 20); baseline, hybrid and PINN are within 0.06 °C of each other
   except on the generator bearings, where the PINN gains up to 0.15 °C.
-- The physics model is 1–3 °C worse: most of these temperatures are
-  actively regulated (gear oil stays at 51–57 °C at any power; the
-  gear-oil inlet and front generator bearing get **cooler** as power rises
-  because coolers and fans engage), which one heat balance cannot follow.
-  Its parameters are plausible: time constants of 3–7 h at standstill,
-  cooling 20–40 % stronger at full rotor speed (fit on 2016–2021).
+- **The cooler term made physics 0.8 °C better** (mean 4.73 → 3.93 °C;
+  gear oil on Penmanshiel 4.22 → 2.82 °C) and the hybrid built on it
+  slightly better (2.49 → 2.46 °C). The learned set points are physical:
+  gear oil 55.8 °C (median over turbines), where the data showed it
+  regulated (51–57 °C at any power); main bearings 61–67 °C; the cooler
+  gain is largest for gear oil and the main bearings and near zero for the
+  rear generator bearing. Standstill time constants are 4–12 h.
+- The physics model is still 1.5 °C worse: the gear-oil inlet and front
+  generator bearing get **cooler** as power rises (coolers and fans
+  engage with load), which one lumped balance does not capture.
 - The gear-oil inlet is the hardest signal for every variant (it switches
   with the oil cooler).
+- Tried and rejected: a LightGBM monotone constraint (expected temperature
+  never falls as ambient or nacelle temperature rise) made the baseline
+  worse (mean 2.46 → 2.60 °C; KLM stator 1.63 → 2.00 °C), because the
+  nacelle temperature falls at high power as the ventilation runs harder.
+  The warm-year drift it targeted is handled by fleet-relative scoring
+  (§7.10).
 - PINN λ (stator, 10,000 steps, fit on 2016–2021): 0 and 0.01 give the
   same test RMSE (1.61 / 1.91 °C), but 0.01 cuts the network's ODE
   residual from 25.5 to 6.5 °C/h, i.e. its predictions stop jumping
@@ -432,78 +448,105 @@ Mean test RMSE (°C, 2022–2024; all variants scored on the same normal rows,
   RMSE, because the lumped heat balance itself is only accurate to about
   5 °C.
 - The thermal step takes about 2 minutes per temperature (physics and PINN
-  on the GPU, LightGBM on 8 threads); system memory rose from about 5 to
-  10 GB while it ran.
+  on the GPU, LightGBM on 8 threads); system memory stays below 11 GB.
 
 **Alerts and evaluation (§7.10):** for every power, pitch and thermal
-model, residual = measured − expected on normal rows, a 24 h rolling mean
-(at least 6 h of rows), turned into a problem score (low power, high
-temperature, either side for pitch). Threshold: the 99.5th percentile of
-the score in the calibration year 2021. Exceedances of at least 6 h are
-alerts, and a model's alerts less than 7 days apart are merged. Yaw models
-alert when an identified window offset drifts more than 4° from the
-static offset. Evaluation (test period 2022+): fault events of one turbine
-and component less than 7 days apart are one episode; an episode is
-**detected** when an alert of the same turbine and component starts at
-most 30 days before it. **Chance** is what alerts at the same rate, placed
-at random, would detect (1 − e^(−rate·30 days)).
+model, residual = measured − expected on normal rows (temperatures only
+at ≥ 500 kW, as they depend on load), a 24 h rolling mean (at least 6 h of
+rows), made **fleet-relative** (minus the median of the other turbines of
+the farm for the same model at the same time, which removes weather,
+season and farm-wide drift) and turned into a problem score (low power,
+high temperature, either side for pitch). Threshold: the 99.5th
+percentile of the score in the calibration year 2021. Exceedances of at
+least 6 h are alerts, and a model's alerts less than 7 days apart are
+merged. Yaw models alert when an identified window offset drifts more
+than 4° from the static offset. **Drift alerts** flag at least 3 months
+in a row whose mean score is above the calibration year's by 1 °C, 20 kW
+or 0.5° (pitch). All settings were fixed before looking at results.
 
-Test-period episodes: Kelmarsh gearbox 8, pitch 9, yaw 5 (no generator
-events); Penmanshiel gearbox 111 (from 288 events), generator 13, pitch
-22, yaw 5. There are no main-bearing events. 5,883 alerts after
-train_end (Kelmarsh 2,529, Penmanshiel 3,354); 158 test alerts precede an
-episode (`kt:precedes`).
+Evaluation (test period 2022+): fault events of one turbine and component
+less than 7 days apart are one episode; an episode is **detected** when an
+alert of the same turbine and component starts at most 30 days before
+it. **Chance** is what alerts at the same rate, placed at random, would
+detect (1 − e^(−rate·30 days)). Two scopes: **component** (every labelled
+event of the component, as the spec says) and **signal** (only the events
+a signal can physically precede: gear oil and gear-oil inlet ← high gear
+bearing temperature, oil-cooler fan overload, choked oil filter, gearbox
+derating; generator bearings ← high/max bearing temperature; stator ←
+thermistor trip). `make curves` repeats the evaluation at six threshold
+quantiles (90–99.9 %, all set on 2021) with raw and fleet-relative
+scores; a curve's **lift** is detection rate minus chance averaged over
+the quantiles.
+
+Test-period episodes, component scope: Kelmarsh gearbox 8 (27 events),
+pitch 9, yaw 5, no generator events; Penmanshiel gearbox 111 (288 events),
+generator 13, pitch 22, yaw 5. Signal scope: Kelmarsh gearbox 2,
+Penmanshiel gearbox 45, and no generator-bearing or stator trips on
+either farm. No main-bearing events. 3,478 alerts after train_end
+(Kelmarsh 1,477, Penmanshiel 2,001; 13,404 before merging, load filter
+and fleet-relative scoring); 133 test alerts precede an episode
+(`kt:precedes`); 176 drift alerts.
+
+Component scope at the 99.5 % threshold (fleet-relative):
 
 | Farm | Model (component) | Variant | Detected | Rate | Chance | Median lead | False alarms / turbine-year |
 |---|---|---|---|---|---|---|---|
-| KLM | gear oil (gearbox) | physics | 0/8 | 0.00 | 0.14 | – | 0.8 |
-| KLM | gear oil (gearbox) | baseline | 4/8 | 0.50 | 0.44 | 8.7 d | 7.8 |
-| KLM | gear oil (gearbox) | hybrid | 3/8 | 0.38 | 0.41 | 15.9 d | 6.7 |
-| KLM | gear oil (gearbox) | pinn | 3/8 | 0.38 | 0.49 | 15.9 d | 8.9 |
-| KLM | gear-oil inlet (gearbox) | pinn | 4/8 | 0.50 | 0.33 | 19.1 d | 3.8 |
-| PEN | gear oil (gearbox) | physics | 0/111 | 0.00 | 0.01 | – | 0.2 |
-| PEN | gear oil (gearbox) | baseline | 36/111 | 0.32 | 0.35 | 17.9 d | 4.1 |
-| PEN | gear oil (gearbox) | hybrid | 36/111 | 0.32 | 0.30 | 16.9 d | 3.1 |
-| PEN | gear oil (gearbox) | pinn | 41/111 | 0.37 | 0.36 | 16.9 d | 4.2 |
-| PEN | power (generator) | physics | 3/13 | 0.23 | 0.32 | 13.2 d | 1.9 |
-| PEN | power (generator) | baseline | 2/13 | 0.15 | 0.33 | 13.5 d | 2.2 |
-| PEN | stator (generator) | all | 0/13 | 0.00 | 0.05–0.10 | – | 0.9–2.7 |
-| both | pitch | physics, hybrid | 0/31 | 0.00 | ≤ 0.04 | – | ≤ 0.5 |
+| KLM | gear oil (gearbox) | physics | 1/8 | 0.12 | 0.26 | 2.8 d | 2.4 |
+| KLM | gear oil (gearbox) | baseline | 2/8 | 0.25 | 0.28 | 15.9 d | 2.7 |
+| KLM | gear oil (gearbox) | hybrid | 3/8 | 0.38 | 0.32 | 22.2 d | 3.0 |
+| KLM | gear oil (gearbox) | pinn | 3/8 | 0.38 | 0.32 | 9.7 d | 3.3 |
+| PEN | gear oil (gearbox) | physics | 0/111 | 0.00 | 0.01 | – | 0.3 |
+| PEN | gear oil (gearbox) | baseline | 22/111 | 0.20 | 0.19 | 16.5 d | 1.3 |
+| PEN | gear oil (gearbox) | hybrid | 8/111 | 0.07 | 0.11 | 9.0 d | 1.3 |
+| PEN | gear oil (gearbox) | pinn | 25/111 | 0.23 | 0.21 | 15.5 d | 1.8 |
+| PEN | power (generator) | physics | 5/13 | 0.38 | 0.46 | 21.0 d | 4.8 |
+| PEN | power (generator) | baseline | 3/13 | 0.23 | 0.25 | 25.1 d | 3.8 |
+| PEN | stator (generator) | pinn | 4/13 | 0.31 | 0.07 | 14.4 d | 1.6 |
+| PEN | stator (generator) | others | 0/13 | 0.00 | 0.03–0.04 | – | 0.3–1.0 |
+| both | pitch | physics, hybrid | 0/31 | 0.00 | ≤ 0.01 | – | ≤ 0.1 |
 | PEN | yaw | physics | 0/5 | 0.00 | 0.03 | – | 0.1 |
 
-The full table (every farm, component, temperature and variant) is printed
-by `make evaluate` and stored in `models/evaluation.json`.
+The full tables are printed by `make evaluate` and `make curves` and
+stored in `models/evaluation.json` and `models/curves.json`.
 
-- **Event-timed detection is at chance level for every model.** Where a
-  variant detects more episodes, it also raises more alerts, and random
-  alerts at that rate would detect as many. The few rates above chance
-  (KLM gear-oil inlet PINN 4/8 vs 0.33) rest on 8 episodes. The labelled
-  events are mostly stops such as "Missing gear oil" (Penmanshiel), pitch
-  and yaw faults; in 10-minute SCADA data they are not preceded by a
-  24-hour temperature or power anomaly that these models can see.
-- **The physics models barely alert** (0.2–1 false alarm per turbine-year
-  for gear oil): their errors are wide, so the 99.5th-percentile threshold
-  sits at a median 8.7 °C (gear oil 6.6–10.4 °C). The ML thresholds have a
-  median of 2.4–2.7 °C (about 1 °C for gear oil), so the ML models react to
-  small, slow changes, which makes them both noisier and more sensitive.
-- **Slow drift is the real signal.** The drift KPI (each year's mean
-  problem score minus 2021's, in `evaluation.json`) finds changes that the
-  event matching cannot credit, and all four variants agree on them,
-  physics included:
-  - KLM T04 gear oil: +1.1 °C (2023) and +1.7 °C (2024) on the yearly
-    mean; above 500 kW the measured temperature rose from about 50 to
-    54–56 °C while the expected value stayed at 50.7 °C. KLM T04 has the
-    most gearbox events of Kelmarsh in the test period.
-  - KLM T06 gear-oil inlet +2.3 °C (2023–2024); KLM T01 front generator
-    bearing +2.1 °C (2024); KLM T02 rear generator bearing +2.3 °C in 2022,
-    back to +0.3 °C afterwards.
-  - Power: KLM T02 produces 37–50 kW less than in 2021 (2022–2024, all
-    three variants); PEN T08 32 kW less in 2022, then 65 kW more in 2023
-    (the end of its underperformance episode; 2021 itself was degraded).
-- Part of the ML drift is the models', not the turbines': on PEN T05 the
-  measured main-bearing temperature is flat at fixed power while the
-  baseline residual rises from about 0.1 °C (2019–2020) to 0.7–1.0 °C
-  (2022–2023), as those years were warmer than the training years.
+- **Event-timed detection stays at chance level, even measured fairly.**
+  Across six thresholds, both scopes and raw or fleet-relative scores, the
+  lift lies between −0.24 and +0.14 for every model with at least 5
+  episodes (mostly within ±0.06), and
+  between −0.09 and +0.03 on the 111 Penmanshiel gearbox episodes
+  (component scope) and the 45 signal-scope episodes. The one row well
+  above chance (PEN stator PINN, 4/13 vs 0.07; fleet lift +0.14) rests on
+  13 episodes among about 140 rows, so one such row is expected by
+  chance. The load filter, fleet-relative scoring and merging together cut
+  false alarms (Kelmarsh gear oil, LightGBM: 29 → 2.7 per turbine-year
+  since the first §7.10 run) without improving detection. The
+  labelled events, mostly stops such as "Missing gear oil" and particle
+  alarms, are not preceded by a 24-hour temperature or power anomaly in
+  10-minute SCADA data.
+- **Drift alerts work as a turbine-level health indicator for the
+  gearbox.** The turbines with a gear-oil or gear-oil-inlet drift alert
+  from at least 3 of the 4 variants (KLM T01, T04, T06; PEN T08, T09,
+  T15) had more gearbox events in the test period: Kelmarsh 8.3 vs 0.7 per
+  turbine, Penmanshiel 43.7 vs 14.3, including the turbine with the most
+  events on each farm (PEN T15: 97, KLM T04: 20). An exact permutation
+  test of the flagged turbines' event ranks within each farm gives
+  p = 0.074: suggestive, not significant with 3 flagged turbines per farm.
+  - KLM T04 gear oil runs **+5 °C above the rest of its farm** from July
+    2023 (all four variants, physics included); above 500 kW it rose from
+    about 50 to 54–56 °C. It followed 16 particle alarms in January–April
+    2023: debris first, heat later.
+  - PEN T09 gear-oil inlet drifts from May 2022, a year before its
+    "Missing gear oil" stops escalate (8 in Q3 2023, 14 in Q4 2023).
+  - PEN T15 gear-oil inlet runs up to +9 °C above its farm in 2024 (all
+    variants), alongside 97 gearbox events from 2022 on.
+  - KLM T06 gear-oil inlet +6 °C from 2022, followed only by five
+    "Implausible gear speed" events (a sensor fault, probably unrelated).
+- **Generator drift alerts are not specific:** they flag 13 of 20
+  turbines, and the flagged ones had fewer generator events (Penmanshiel
+  0.5 vs 3.8 per turbine). There are no stator or bearing trips in the
+  test period to validate the generator temperatures against.
+- The yearly drift table (each year's mean score minus 2021's) in
+  `evaluation.json` gives the same picture per model.
 
 ## Testing and linting
 
@@ -796,7 +839,30 @@ make lint         # uv run ruff check .
     generator events only (spec: same component); Kelmarsh has no
     generator events in the test period, and no farm has main-bearing
     events, so those alerts can only be false alarms or case studies.
-  - The committed graph now holds the alerts (3.7 MB instead of 1.5 MB).
+  - The committed graph now holds the alerts (2.8 MB instead of 1.5 MB).
+- Improvements after §7.10 (decided with the user; all settings fixed
+  before looking at results):
+  - Thermal physics gained a cooler term `− h₂·max(T − T_set, 0)` with a
+    learnable set point per turbine (start: the median training
+    temperature); older saved parameters without it still load. The PINN's
+    ODE keeps the spec's balance without it.
+  - Scores: temperatures only at ≥ 500 kW (`alerts.min_power_kw`) and
+    fleet-relative (`alerts.fleet_relative`, median of the other turbines
+    of the farm, at least 3 of them). The scoring moved to
+    `src/health/scores.py` and runs per farm.
+  - Drift alerts (`alerts.drift`): ≥ 3 months with a mean score above the
+    calibration year's by a fixed margin. They are written to
+    `models/drift_alerts.json`, not the graph (the schema has one alert
+    class; adding one needs a full ontology rebuild).
+  - Evaluation adds a signal scope (`evaluation.signal_events`, checked by
+    a test against `fault_labels`) next to the spec's component scope, and
+    `src/health/curves.py` (`make curves`) evaluates six threshold
+    quantiles with raw and fleet-relative scores.
+  - Tried and rejected: a monotone constraint on ambient and nacelle
+    temperature in the thermal LightGBM model (worse RMSE, see Results);
+    the code was removed.
+  - Not done: CPU-only thermal training and a GPU power limit (the user
+    left these out).
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

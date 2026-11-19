@@ -1,18 +1,19 @@
 """Residual-based component health alerts (spec §7.10).
 
-For every model with a prediction column: residual = measured - expected
-on normal rows, smoothed with a rolling time-window mean, turned into a
-problem score (larger = worse: low power, high temperature, either side
-for pitch). The threshold is a high quantile of the score in the
+For every model with a prediction column, the problem score of
+scores.py (fleet-relative, temperatures under load only; larger = worse)
+is compared with a threshold: a high quantile of the score in the
 calibration year, which no model was fitted on. Exceedances longer than a
 minimum duration become alerts, and a model's alerts less than
 `merge_gap_days` apart are merged into one; alerts are raised after
 train_end. Yaw models alert when an identified rolling-window offset
-drifts from the static offset.
+drifts from the static offset. Drift alerts flag months in a row whose
+mean score stays above the calibration year's by a margin.
 
 Alerts go into the graph (kt:Alert), replacing each model's previous
 alerts. models/alerts.json holds per model its threshold, alert count and
-yearly mean score (the drift KPI used by evaluate.py).
+yearly mean score (the drift KPI used by evaluate.py);
+models/drift_alerts.json the drift alerts.
 """
 
 import json
@@ -32,38 +33,14 @@ from src.graph.graph_utils import (
     remove_alerts,
     save_graph,
 )
-from src.models.modelling import prediction_column, split_times, turbine_paths
+from src.health.scores import farm_scores
+from src.models.modelling import split_times, turbine_paths
 
 logger = logging.getLogger(__name__)
 
 PERIOD_COLUMNS = ["start", "end", "peak"]
 IDENTITY = ["farm_code", "turbine_id", "model_class", "target", "variant"]
-
-
-def smoothed_residual(
-    frame: pd.DataFrame, target: str, column: str, window: str, min_samples: int
-) -> pd.Series:
-    """Rolling time-window mean of measured - expected over normal rows
-    with both values, indexed by timestamp (windows with fewer than
-    `min_samples` rows dropped)."""
-    rows = frame["is_normal"] & frame[target].notna() & frame[column].notna()
-    residual = pd.Series(
-        (frame.loc[rows, target] - frame.loc[rows, column]).to_numpy(),
-        index=pd.DatetimeIndex(frame.loc[rows, "timestamp"]),
-    )
-    return residual.rolling(window, min_periods=min_samples).mean().dropna()
-
-
-def problem_score(residual: pd.Series, direction: str) -> pd.Series:
-    """Residual turned so that larger is worse: `low` (e.g. power below
-    expected), `high` (temperature above) or `both` (either side)."""
-    if direction == "low":
-        return -residual
-    if direction == "high":
-        return residual
-    if direction == "both":
-        return residual.abs()
-    raise ValueError(f"unknown alert direction {direction!r}")
+MIN_MONTH_DAYS, MAX_MONTH_DAYS = 28, 31
 
 
 def calibration_threshold(
@@ -145,17 +122,12 @@ def write_alerts(
 
 
 def residual_alerts(
-    frame: pd.DataFrame, model: pd.Series, config: dict[str, Any]
+    score: pd.Series, config: dict[str, Any]
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Merged alert periods (after train_end) of one residual model, with
+    """Merged alert periods (after train_end) of one model's score, with
     its threshold and yearly mean score."""
     settings = config["alerts"]
     train_end, calibration_end = split_times(config["train_test_split"])
-    column = prediction_column(model.target, model.variant)
-    smoothed = smoothed_residual(
-        frame, model.target, column, settings["window"], settings["min_samples"]
-    )
-    score = problem_score(smoothed, settings["direction"][model.model_class])
     threshold = calibration_threshold(
         score, train_end, calibration_end, settings["quantile"]
     )
@@ -167,6 +139,30 @@ def residual_alerts(
     )
     merged = merge_periods(periods, pd.Timedelta(days=settings["merge_gap_days"]))
     return merged, {"threshold": threshold, "yearly_mean_score": yearly_means(score)}
+
+
+def drift_periods(
+    score: pd.Series,
+    train_end: pd.Timestamp,
+    calibration_end: pd.Timestamp,
+    margin: float,
+    months: int,
+) -> pd.DataFrame:
+    """Runs of at least `months` consecutive months (after train_end) whose
+    mean score exceeds the calibration year's mean by more than `margin`:
+    start of the first month, end of the last, peak = largest excess."""
+    monthly = score.resample("MS").mean().dropna()
+    calibration = monthly[
+        (monthly.index > train_end) & (monthly.index <= calibration_end)
+    ]
+    excess = monthly[monthly.index > train_end] - calibration.mean()
+    periods = alert_periods(
+        excess,
+        margin,
+        pd.Timedelta(days=MAX_MONTH_DAYS),
+        pd.Timedelta(days=MIN_MONTH_DAYS * (months - 1)),
+    )
+    return periods.assign(end=periods["end"] + pd.offsets.MonthBegin(1))
 
 
 def yaw_alerts(
@@ -187,35 +183,45 @@ def yaw_alerts(
     return merge_periods(periods, gap), {"threshold": drift}
 
 
-def turbine_alerts(
+def farm_alerts(
     g: Graph,
     config: dict[str, Any],
     models: pd.DataFrame,
-    frame: pd.DataFrame,
+    scores: dict[str, pd.Series],
     windows: pd.DataFrame,
-) -> dict[str, dict[str, Any]]:
-    """Alerts of every model of one turbine; returns a record per model."""
-    records = {}
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Alerts of every model of one farm, written to the graph; returns a
+    record per model and the drift alerts."""
+    drift = config["alerts"]["drift"]
+    train_end, calibration_end = split_times(config["train_test_split"])
+    records, drifts = {}, []
     for model in models.itertuples():
+        model_id = model.model.split("#")[-1]
+        identity = {key: getattr(model, key) for key in IDENTITY}
         if model.model_class == "YawModel":
-            periods, info = yaw_alerts(windows, model, config)
+            mine = windows[windows["turbine_id"] == model.turbine_id]
+            periods, info = yaw_alerts(mine, model, config)
         else:
-            periods, info = residual_alerts(frame, model, config)
+            score = scores.get(model_id, pd.Series(dtype=float))
+            periods, info = residual_alerts(score, config)
+            sustained = drift_periods(
+                score,
+                train_end,
+                calibration_end,
+                drift["margin"][model.model_class],
+                drift["months"],
+            )
+            drifts += [
+                {"model": model_id, **identity, "component": model.component_key}
+                | {"start": p.start, "end": p.end, "peak": p.peak}
+                for p in sustained.itertuples()
+            ]
         component = component_iri(
             model.farm_code, model.turbine_id, model.component_key
         )
         count = write_alerts(g, URIRef(model.model), component, periods)
-        identity = {key: getattr(model, key) for key in IDENTITY}
-        records[model.model.split("#")[-1]] = identity | info | {"alerts": count}
-    return records
-
-
-def needed_columns(models: pd.DataFrame) -> list[str]:
-    """Parquet columns that the residual models of one turbine need."""
-    residual = models[models["model_class"] != "YawModel"]
-    columns = ["timestamp", "is_normal", *residual["target"]]
-    columns += [prediction_column(m.target, m.variant) for m in residual.itertuples()]
-    return list(dict.fromkeys(columns))
+        records[model_id] = identity | info | {"alerts": count}
+    return records, drifts
 
 
 def main() -> None:
@@ -224,22 +230,29 @@ def main() -> None:
     config = load_config()
     ontology = config["paths"]["ontology"]
     g = load_graph(ontology)
-    records = {}
+    records, drifts = {}, []
     for farm in farm_names(config):
         code = config["farms"][farm]["code"]
         models = get_models(g, code)
-        offsets = pd.read_parquet(
+        windows = pd.read_parquet(
             farm_processed_dir(config, farm) / "yaw_offsets.parquet"
         )
-        for tid, path in turbine_paths(g, code).items():
-            mine = models[models["turbine_id"] == tid]
-            frame = pd.read_parquet(path, columns=needed_columns(mine))
-            windows = offsets[offsets["turbine_id"] == tid]
-            records |= turbine_alerts(g, config, mine, frame, windows)
-            logger.info("%s %s: alerts for %d models", code, tid, len(mine))
+        scores = farm_scores(
+            config, models, turbine_paths(g, code), config["alerts"]["fleet_relative"]
+        )
+        farm_records, farm_drifts = farm_alerts(g, config, models, scores, windows)
+        records |= farm_records
+        drifts += farm_drifts
+        logger.info("%s: alerts for %d models", code, len(farm_records))
     save_graph(g, ontology)
-    out = Path(config["paths"]["models"]) / "alerts.json"
-    out.write_text(json.dumps(records, indent=2, sort_keys=True))
+    models_dir = Path(config["paths"]["models"])
+    (models_dir / "alerts.json").write_text(
+        json.dumps(records, indent=2, sort_keys=True)
+    )
+    drift_frame = pd.DataFrame(drifts)
+    (models_dir / "drift_alerts.json").write_text(
+        drift_frame.to_json(orient="records", date_format="iso", indent=2)
+    )
     summary = (
         pd.DataFrame(records)
         .T.astype({"alerts": int})
@@ -248,6 +261,23 @@ def main() -> None:
     )
     print("Alerts after train_end (sum over turbines and targets, mean per model):")
     print(summary.round(1).to_string())
+    print(f"\nDrift alerts (sustained {config['alerts']['drift']['months']}+ months):")
+    if not drift_frame.empty:
+        columns = [
+            "farm_code",
+            "turbine_id",
+            "target",
+            "variant",
+            "start",
+            "end",
+            "peak",
+        ]
+        shown = drift_frame[columns].assign(
+            start=drift_frame["start"].dt.strftime("%Y-%m"),
+            end=drift_frame["end"].dt.strftime("%Y-%m"),
+            peak=drift_frame["peak"].round(2),
+        )
+        print(shown.to_string(index=False))
 
 
 if __name__ == "__main__":

@@ -7,12 +7,12 @@ import pytest
 from src.health.alerts import (
     alert_periods,
     calibration_threshold,
+    drift_periods,
     merge_periods,
-    problem_score,
-    smoothed_residual,
     yaw_alert_periods,
     yearly_means,
 )
+from src.health.scores import problem_score, smoothed_residual
 
 TRAIN_END = pd.Timestamp("2020-12-31 23:50", tz="UTC")
 CAL_END = pd.Timestamp("2021-12-31 23:50", tz="UTC")
@@ -150,3 +150,38 @@ def test_yearly_means_of_the_score() -> None:
     score = pd.Series([1.0, 3.0, 10.0], index=times("2021-12-31 23:00", 3, "30min"))
 
     assert yearly_means(score) == {2021: 2.0, 2022: 10.0}
+
+
+def monthly_score(values: list[float]) -> pd.Series:
+    """Daily scores from January 2021, constant within each calendar month."""
+    months = pd.date_range("2021-01-01", periods=len(values), freq="MS", tz="UTC")
+    parts = [
+        pd.Series(value, index=pd.date_range(m, m + pd.offsets.MonthEnd(0), freq="D"))
+        for m, value in zip(months, values, strict=True)
+    ]
+    return pd.concat(parts)
+
+
+CALIBRATION_END = pd.Timestamp("2021-12-31 23:50", tz="UTC")
+
+
+def test_drift_periods_need_enough_months_above_the_calibration_mean() -> None:
+    # 2021-ish calibration around 0, then 2 months at +2 and later 3 at +2
+    score = monthly_score([0.0] * 12 + [2.0, 2.0, 0.0, 2.0, 2.0, 2.0])
+    train_end = pd.Timestamp("2020-12-31 23:50", tz="UTC")
+
+    periods = drift_periods(score, train_end, CALIBRATION_END, margin=1.0, months=3)
+
+    assert len(periods) == 1
+
+
+def test_drift_periods_end_after_the_last_month() -> None:
+    score = monthly_score([0.0] * 12 + [3.0, 3.0, 3.0])
+    train_end = pd.Timestamp("2020-12-31 23:50", tz="UTC")
+
+    periods = drift_periods(score, train_end, CALIBRATION_END, margin=1.0, months=3)
+
+    assert (periods["peak"].tolist(), periods["end"].iloc[0] > score.index[-1]) == (
+        [3.0],
+        True,
+    )

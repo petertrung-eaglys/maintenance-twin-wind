@@ -791,3 +791,25 @@ and the Kelmarsh repo tag the code was derived from.
   every model (e.g. PEN gearbox gear oil: PINN 41/111 vs chance 0.36);
   the drift table finds slow changes all variants agree on (KLM T04 gear
   oil +1.7 °C in 2024, KLM T02 −50 kW).
+
+### Change: fairer evaluation, fleet-relative scores, drift alerts (2026-11-19)
+
+- Decided with the user after §7.10 showed chance-level detection. All
+  settings were fixed before looking at results.
+- Evaluation: a signal scope (`evaluation.signal_events`: only the fault
+  messages a signal can physically precede) next to the component scope;
+  `src/health/curves.py` (`make curves`) evaluates six threshold
+  quantiles (90–99.9 %, set on 2021) with raw and fleet-relative scores,
+  summarised as lift = detection rate − chance.
+- Scores (`src/health/scores.py`): temperatures only at ≥ 500 kW,
+  fleet-relative (minus the median of the other turbines of the farm).
+- Drift alerts: ≥ 3 months above the calibration year's mean by 1 °C /
+  20 kW / 0.5°; `models/drift_alerts.json`, with the events that followed
+  in `models/evaluation.json`.
+- Thermal physics: cooler term `h₂·max(T − T_set, 0)` with a learnable set
+  point; mean test RMSE 4.73 → 3.93 °C. A LightGBM monotone constraint on
+  ambient/nacelle temperature was tried and removed (2.46 → 2.60 °C).
+- Results: lift between −0.24 and +0.14 (about zero on the 111
+  Penmanshiel gearbox episodes); gearbox drift alerts flag the turbines
+  with the most gearbox events (exact permutation p = 0.074); generator
+  drift alerts are not specific.

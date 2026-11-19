@@ -160,6 +160,59 @@ def summarise(
     return pd.DataFrame(records)
 
 
+def evaluate_scopes(
+    alerts: pd.DataFrame,
+    events: pd.DataFrame,
+    turbine_days: pd.Series,
+    lookback: pd.Timedelta,
+    gap: pd.Timedelta,
+    groups: pd.DataFrame,
+    signal_events: Mapping[str, list[str]],
+) -> pd.DataFrame:
+    """The summary for the component scope (every event of the component)
+    and the signal scope (for each mapped target, only the events its
+    signal can precede); column `scope`."""
+    parts = [
+        summarise(
+            alerts, merge_episodes(events, gap), turbine_days, lookback, groups
+        ).assign(scope="component")
+    ]
+    for target, messages in signal_events.items():
+        mine = groups[groups["target"] == target]
+        if mine.empty:
+            continue
+        episodes = merge_episodes(events[events["message"].isin(messages)], gap)
+        parts.append(
+            summarise(alerts, episodes, turbine_days, lookback, mine).assign(
+                scope="signal"
+            )
+        )
+    return pd.concat(parts, ignore_index=True)
+
+
+def drift_cases(
+    drifts: pd.DataFrame,
+    events: pd.DataFrame,
+    lookback: pd.Timedelta,
+    signal_events: Mapping[str, list[str]],
+) -> pd.DataFrame:
+    """Each drift alert with the number of events of its turbine and
+    component (and of its signal) from its start to `lookback` after its
+    end."""
+    counts = []
+    for drift in drifts.itertuples():
+        same = events[
+            (events["farm_code"] == drift.farm_code)
+            & (events["turbine_id"] == drift.turbine_id)
+            & (events["component_key"] == drift.component)
+            & events["start"].between(drift.start, drift.end + lookback)
+        ]
+        messages = signal_events.get(drift.target, [])
+        counts.append((len(same), int(same["message"].isin(messages).sum())))
+    component, signal = zip(*counts, strict=True) if counts else ((), ())
+    return drifts.assign(component_events=list(component), signal_events=list(signal))
+
+
 def drift_table(
     records: Mapping[str, dict[str, Any]], calibration_year: int
 ) -> pd.DataFrame:
@@ -211,24 +264,37 @@ def main() -> None:
     g = load_graph(ontology)
     codes = [config["farms"][farm]["code"] for farm in farm_names(config)]
     events = get_fault_events(g)
-    episodes = merge_episodes(events[events["start"] > calibration_end], gap)
+    events = events[events["start"] > calibration_end]
+    episodes = merge_episodes(events, gap)
+    signal_events = settings["signal_events"]
     alerts = get_alerts(g)
     alerts = alerts[alerts["start"] > calibration_end]
     days = pd.concat(
         {code: days_after(turbine_paths(g, code), calibration_end) for code in codes}
     )
     groups = get_models(g)[GROUP].drop_duplicates().sort_values(GROUP)
-    summary = summarise(alerts, episodes, days, lookback, groups)
+    summary = evaluate_scopes(
+        alerts, events, days, lookback, gap, groups, signal_events
+    )
     clear_precedes(g)
     links = nearest_matches(match_alerts(alerts, episodes, lookback))
     for link in links.itertuples():
         add_precedes(g, URIRef(link.alert), URIRef(link.event), link.lead_hours)
     save_graph(g, ontology)
-    records = json.loads((Path(config["paths"]["models"]) / "alerts.json").read_text())
+    models_dir = Path(config["paths"]["models"])
+    records = json.loads((models_dir / "alerts.json").read_text())
     drift = drift_table(records, calibration_end.year)
-    write_evaluation(config, summary, episodes, drift)
+    drift_alerts = pd.read_json(models_dir / "drift_alerts.json")
+    if not drift_alerts.empty:
+        drift_alerts = drift_alerts.assign(
+            start=pd.to_datetime(drift_alerts["start"], utc=True),
+            end=pd.to_datetime(drift_alerts["end"], utc=True),
+        )
+    cases = drift_cases(drift_alerts, events, lookback, signal_events)
+    write_evaluation(config, summary, episodes, drift, cases)
     print_summary(summary)
     print_drift(drift)
+    print_drift_cases(cases)
     logger.info("Linked %d alerts to fault events in %s", len(links), ontology)
 
 
@@ -237,9 +303,10 @@ def write_evaluation(
     summary: pd.DataFrame,
     episodes: pd.DataFrame,
     drift: pd.DataFrame,
+    cases: pd.DataFrame,
 ) -> None:
-    """models/evaluation.json: settings, episode counts, the summary and
-    the drift table."""
+    """models/evaluation.json: settings, episode counts, the summary (both
+    scopes), the drift table and the drift alerts with their events."""
     out = Path(config["paths"]["models"]) / "evaluation.json"
     counts = episodes.groupby(["farm_code", "component_key"]).agg(
         episodes=("event", "size"), events=("n_events", "sum")
@@ -250,6 +317,7 @@ def write_evaluation(
         "episodes": counts.reset_index().to_dict("records"),
         "summary": json.loads(summary.to_json(orient="records")),
         "drift": json.loads(drift.to_json(orient="records")),
+        "drift_alerts": json.loads(cases.to_json(orient="records", date_format="iso")),
     }
     out.write_text(json.dumps(payload, indent=2))
 
@@ -264,7 +332,18 @@ def print_summary(summary: pd.DataFrame) -> None:
         chance=summary["chance_detection_rate"].round(2),
         lead_days=(summary["lead_hours_median"] / 24).round(1),
         fa_per_ty=summary["false_alarms_per_turbine_year"].round(1),
-    )[[*GROUP, "detected", "rate", "chance", "lead_days", "alerts", "fa_per_ty"]]
+    )[
+        [
+            "scope",
+            *GROUP,
+            "detected",
+            "rate",
+            "chance",
+            "lead_days",
+            "alerts",
+            "fa_per_ty",
+        ]
+    ]
     with pd.option_context("display.width", 200, "display.max_rows", 500):
         print(table.drop(columns="model_class").to_string(index=False))
 
@@ -276,6 +355,21 @@ def print_drift(drift: pd.DataFrame, top: int = 10) -> None:
         years = sorted(c for c in drift.columns if c.isdigit())
         print(f"\nLargest drift vs calibration year, {model_class} ({unit}):")
         print(rows[[*IDENTITY[:2], "target", "variant", *years]].to_string(index=False))
+
+
+def print_drift_cases(cases: pd.DataFrame) -> None:
+    """Drift alerts with the events that followed (case studies)."""
+    print("\nDrift alerts and the events of their component (signal) after them:")
+    if cases.empty:
+        print("none")
+        return
+    shown = cases.assign(
+        start=cases["start"].dt.strftime("%Y-%m"),
+        end=cases["end"].dt.strftime("%Y-%m"),
+        peak=cases["peak"].round(2),
+    )
+    columns = ["farm_code", "turbine_id", "target", "variant", "start", "end", "peak"]
+    print(shown[[*columns, "component_events", "signal_events"]].to_string(index=False))
 
 
 if __name__ == "__main__":

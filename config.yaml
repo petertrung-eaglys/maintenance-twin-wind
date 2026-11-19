@@ -339,6 +339,24 @@ alerts:
     ThermalModel: high         # overheating
   # Yaw: identified rolling-window offset vs the static offset
   yaw_drift_deg: 4.0
+  # Temperatures are scored only while the turbine produces at least this
+  # power: they depend on load, and low-load hours dilute a hot component.
+  min_power_kw:
+    ThermalModel: 500.0
+  # Fleet-relative score: each turbine's smoothed residual minus the median
+  # of the other turbines of its farm (same model, same timestamp), which
+  # removes weather, season and drift common to the farm. Needs at least
+  # fleet_min_turbines others with a value.
+  fleet_relative: true
+  fleet_min_turbines: 3
+  # Drift alerts: the monthly mean score stays above the calibration year's
+  # mean by `margin` (model units) for at least `months` months in a row.
+  drift:
+    months: 3
+    margin:
+      PowerModel: 20.0         # kW
+      PitchModel: 0.5          # deg
+      ThermalModel: 1.0        # degC
 evaluation:
   # An event is detected when an alert of the same turbine and component
   # starts at most lookback_days before it. Events of one turbine and
@@ -346,6 +364,26 @@ evaluation:
   # repeats "Missing gear oil" stops for weeks).
   lookback_days: 30
   merge_gap_days: 7
+  # Signal scope: the fault messages a residual of each signal can precede
+  # (heat, cooling or temperature trips), chosen from the physics before
+  # looking at results. Other signals (power, pitch) use all events of their
+  # component; the component scope is reported for every signal too.
+  signal_events:
+    gear_oil_temp: &gear_heat
+      - High temp. gear bearing 1
+      - High temp. gear bearing 2
+      - Overload fan oil cooler gear
+      - Oil filter gear choked
+      - Reduced power gearbox
+    gear_oil_inlet_temp: *gear_heat
+    generator_bearing_front_temp: &gen_bearing
+      - High temp. gen. bearing 1
+      - Max. temp. gen. bearing 1
+    generator_bearing_rear_temp: *gen_bearing
+    stator_temp:
+      - Thermistor generator
+  # Detection vs false alarms: thresholds at these calibration quantiles
+  curve_quantiles: [0.9, 0.95, 0.98, 0.99, 0.995, 0.999]
 yaw:
   # Static yaw misalignment per turbine (yaw.py): power ratio to the
   # turbine's training power curve vs measured misalignment, fitted as

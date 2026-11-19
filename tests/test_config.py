@@ -149,3 +149,16 @@ def test_every_lightgbm_model_uses_the_configured_threads() -> None:
     }
 
     assert set(jobs.values()) == {config["compute"]["threads"]}
+
+
+def test_signal_events_are_labelled_faults_of_the_signals_component() -> None:
+    config = load_config()
+    components = config["thermal"]["targets"]
+    labels = config["fault_labels"]
+
+    unknown = {
+        target: set(messages) - set(labels[components[target]])
+        for target, messages in config["evaluation"]["signal_events"].items()
+    }
+
+    assert all(not missing for missing in unknown.values()), unknown

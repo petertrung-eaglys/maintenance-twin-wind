@@ -7,6 +7,7 @@ import pytest
 from src.models.thermal.physics import (
     ThermalPhysicsModel,
     coefficients,
+    cooler,
     simulate,
     steady_state,
 )
@@ -28,10 +29,24 @@ TRUE = {
     "KLM_T01": {"c": 0.05, "a": 0.2, "b": 0.1, "h0": 0.02, "h1": 0.03},
     "KLM_T02": {"c": 0.05, "a": 0.2, "b": 0.1, "h0": 0.05, "h1": 0.03},
 }
+# Without its cooler this turbine would reach ~40 degC above the nacelle at
+# full power; the cooler holds it near 35 degC.
+COOLED = {
+    "c": 0.3,
+    "a": 0.4,
+    "b": 0.1,
+    "h0": 0.02,
+    "h1": 0.03,
+    "h2": 0.2,
+    "set_point": 35.0,
+}
 
 
-def synthetic(key: str, days: int = 40, seed: int = 0) -> pd.DataFrame:
+def synthetic(
+    key: str, days: int = 40, seed: int = 0, params: dict | None = None
+) -> pd.DataFrame:
     """A turbine whose temperature follows the heat balance exactly."""
+    params = TRUE[key] if params is None else params
     rng = np.random.default_rng(seed)
     n = days * 144
     power = np.clip(np.cumsum(rng.normal(0, 60, n)) % 4000 - 1000, 0, 2050)
@@ -45,10 +60,11 @@ def synthetic(key: str, days: int = 40, seed: int = 0) -> pd.DataFrame:
             "is_normal": True,
         }
     )
-    alpha, beta = coefficients(frame, TRUE[key], THERMAL)
+    alpha, beta = coefficients(frame, params, THERMAL)
     start = np.r_[30.0, np.full(n - 1, np.nan)]
     restart = np.r_[True, np.zeros(n - 1, dtype=bool)]
-    return frame.assign(temp=simulate(alpha, beta, start, restart, warmup=0))
+    temp = simulate(alpha, beta, start, restart, warmup=0, cooler=cooler(params))
+    return frame.assign(temp=temp)
 
 
 def test_simulate_restarts_from_the_measurement_after_a_gap() -> None:
@@ -131,3 +147,38 @@ def test_predict_rejects_an_unknown_turbine() -> None:
 
     with pytest.raises(KeyError):
         model.predict(synthetic("KLM_T01", days=1).assign(turbine_key="PEN_T09"))
+
+
+def test_simulate_cools_harder_above_the_set_point() -> None:
+    out = simulate(
+        alpha=np.ones(3),
+        beta=np.zeros(3),
+        measured=np.array([60.0, np.nan, np.nan]),
+        restart=np.array([True, False, False]),
+        warmup=0,
+        cooler=(0.5, 50.0),
+    )
+
+    assert out.tolist() == [60.0, 55.0, 52.5]
+
+
+def test_steady_state_with_a_cooler_stays_near_the_set_point() -> None:
+    params = {"c": 0.3, "a": 0.0, "b": 0.0, "h0": 0.2, "h1": 0.0}
+    cooled = params | {"h2": 0.8, "set_point": 21.0}
+
+    # without the cooler 21.5; with it (0.3 + 0.2*20 + 0.8*21) / (0.2 + 0.8)
+    assert steady_state(cooled, 0.0, 0.0, reference=20.0) == pytest.approx(21.1)
+
+
+def test_cooler_defaults_to_none() -> None:
+    assert cooler({"h0": 0.1}) == (0.0, float("inf"))
+
+
+def test_fit_learns_a_regulated_temperature() -> None:
+    frame = synthetic("KLM_T01", params=COOLED)
+    model = ThermalPhysicsModel("temp", THERMAL, interval_minutes=10, seed=0)
+
+    model.fit({"KLM_T01": frame})
+
+    rmse = np.sqrt(np.nanmean((model.predict(frame) - frame["temp"]) ** 2))
+    assert rmse < 0.5
