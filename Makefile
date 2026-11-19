@@ -1,4 +1,4 @@
-.PHONY: setup download inspect data ontology train alerts evaluate curves cross-site report test lint
+.PHONY: setup download inspect data ontology train wake alerts evaluate curves cross-site report test lint
 
 setup:
 	uv sync
@@ -24,9 +24,15 @@ NICE = nice -n 10
 train:
 	$(NICE) uv run python -m src.models.power_baseline
 	$(NICE) uv run python -m src.models.physics_power
+	$(NICE) uv run python -m src.models.wake
 	$(NICE) uv run python -m src.models.pitch
 	$(NICE) uv run python -m src.models.yaw
 	$(NICE) uv run python -m src.models.thermal.train
+
+# Wake-aware power alone (§7.13, also part of train); needs the physics
+# power curves
+wake:
+	$(NICE) uv run python -m src.models.wake
 
 alerts:
 	$(NICE) uv run python -m src.health.alerts

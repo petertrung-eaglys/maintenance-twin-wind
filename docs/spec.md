@@ -857,3 +857,19 @@ and the Kelmarsh repo tag the code was derived from.
   T15's 2024 inlet jump is inlet-only (sump unchanged), so likely cooler or
   sensor work rather than heat. README physics power means corrected
   (3.96/3.37 → 3.81/3.52 %: stale values).
+
+### Milestone 7.13 (stretch): wake-aware expected power (2026-11-19)
+
+- Decided with the user: the physics power model uses each turbine's own
+  (already waked) nacelle wind, so multiplying a wake loss into it would
+  double-count. `src/models/wake.py` (`make wake`, also in `make train`)
+  adds PowerModel variants `freestream` (physics at the free-stream speed
+  of the unwaked turbines) and `wake` (× PyWake speed ratio,
+  Bastankhah–Porté-Agel with 7-point rotor averaging); wake expansion k
+  fitted per farm on training rows (KLM 0.040, PEN 0.117). py_wake added
+  (approved in §5).
+- Results: on Penmanshiel the wake model cuts waked power-alert time by
+  79 % and false alarms from 4.8 to 2.6 per turbine-year; on Kelmarsh the
+  nacelle model already raises few waked alerts (anemometer reads low in
+  wakes). Free-stream variants cost accuracy (nRMSE 7–9 % vs 3.5–3.8 %).
+  Report §6 and figure `wake_alerts.png`; `report.wake_power_ratio`.

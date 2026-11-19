@@ -26,3 +26,9 @@ def test_save_writes_a_png_into_a_new_folder(tmp_path) -> None:
 
     assert path.read_bytes().startswith(b"\x89PNG")
     assert not plt.fignum_exists(fig.number)  # closed
+
+
+def test_markdown_table_shows_missing_numbers_as_a_dash() -> None:
+    frame = pd.DataFrame({"lift": [float("nan")]}, index=["signal"])
+
+    assert markdown_table(frame).splitlines()[-1] == "| signal | – |"

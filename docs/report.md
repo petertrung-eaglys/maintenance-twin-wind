@@ -29,6 +29,13 @@ RDF graph. Method details and per-turbine results are in the README.
   flagged turbines per farm). In the clearest case, KLM T04's gear oil runs
   3–5 °C hotter than the rest of the farm from July 2023, after a run of
   particle alarms. All four model variants show it.
+- **Wake-aware expected power removes false underperformance alerts in
+  wakes, at a cost in accuracy.** On Penmanshiel, alerts from the nacelle-
+  wind physics model fall disproportionately in waked conditions (62 % of
+  alert time against 47 % of all time); predicting from the free stream
+  with a PyWake wake model cuts waked alert time by 79 %. The free-stream
+  models are 2–3 times less accurate (nRMSE 7–9 %), and they detect events
+  no better than chance either.
 
 ## 2. Data overview and gaps
 
@@ -171,10 +178,13 @@ Every point is one farm, component, signal and variant at one of six
 threshold quantiles (90–99.9 %), for groups with at least 5 test
 episodes; points on the diagonal detect no more than chance.
 
-| Mean lift (detection − chance) | Physics | Baseline | Hybrid | PINN |
-|---|---|---|---|---|
-| Component scope (all events of the component) | −0.04 | +0.01 | −0.01 | +0.03 |
-| Signal scope (only events a signal can precede) | −0.08 | +0.01 | +0.00 | −0.02 |
+| Mean lift (detection − chance) | Physics | Baseline | Hybrid | PINN | Free stream | Wake |
+|---|---|---|---|---|---|---|
+| Component scope (all events of the component) | −0.04 | +0.01 | −0.01 | +0.03 | −0.06 | −0.08 |
+| Signal scope (only events a signal can precede) | −0.08 | +0.01 | +0.00 | −0.02 | – | – |
+
+(Free stream and wake are power models only, §6; the signal scope
+covers temperatures only.)
 
 - No variant detects the labelled events better than chance, whether
   measured over all of a component's events or only the events a signal can
@@ -191,7 +201,71 @@ episodes; points on the diagonal detect no more than chance.
   (p = 0.074). Generator drift alerts flag 13 of 20 turbines and are not
   specific.
 
-## 6. Fault case studies
+## 6. Wake-aware expected power (stretch)
+
+The physics power model predicts each turbine's power from its own
+nacelle wind speed. Upstream wakes have already slowed that wind, so the
+model partly "sees" the wake and a wake loss cannot simply be multiplied
+into it (as spec §7.13 suggested): that would count the wake twice. The
+data show the wake effect clearly, with opposite signs on the two farms:
+on test rows at 5–10 m/s, the physics residual on waked rows differs from
+free rows by +6.0 points on Kelmarsh (the anemometer in the wake reads low,
+so the turbine looks better than expected) and −4.0 points on
+Penmanshiel.
+
+Instead, two new power variants predict from the farm's **free-stream**
+wind:
+
+- **freestream:** the physics curve at the free-stream wind speed, the mean
+  nacelle wind speed of the turbines that are not waked in the current
+  farm wind direction.
+- **wake:** the physics curve at the free-stream speed × the turbine's
+  speed ratio from PyWake (Bastankhah–Porté-Agel Gaussian wake model with
+  rotor averaging, farm layout from the static files).
+
+The wake expansion k was fitted per farm on the training years only, as
+the value at which waked and free rows have the same mean residual:
+**k = 0.040 on Kelmarsh, 0.117 on Penmanshiel** (forested hills, high
+turbulence, so wakes recover faster). PyWake's default k = 0.032 with
+hub-centre deficits predicted wakes far too deep (waked residual +27 % and
++43 %).
+
+![Share of power-alert time while waked](figures/wake_alerts.png)
+
+| Farm | Variant | Test nRMSE | Alert hours | Waked share of alert time |
+|---|---|---|---|---|
+| KLM | all test rows | – | – | 30 % |
+| KLM | physics (nacelle wind) | 3.81 % | 15,768 | 11 % |
+| KLM | freestream | 9.45 % | 1,076 | 59 % |
+| KLM | wake | 7.20 % | 3,408 | 34 % |
+| PEN | all test rows | – | – | 47 % |
+| PEN | physics (nacelle wind) | 3.52 % | 13,041 | 62 % |
+| PEN | freestream | 9.38 % | 3,590 | 40 % |
+| PEN | wake | 8.56 % | 5,942 | 28 % |
+
+(A row is waked when the wake model expects at least 5 % less power than
+the free stream would give. Alert hours count the normal test rows inside
+alerts, merged alerts included.)
+
+- **Penmanshiel: yes.** The nacelle-wind physics model's underperformance
+  alerts over-represent waked time (62 % against 47 %). With the wake
+  model, waked alert time falls from 8,026 to 1,660 hours (−79 %) and
+  power false alarms from 4.8 to 2.6 per turbine-year. The waked/free
+  residual gap shrinks from −4.0 to −1.6 points.
+- **Kelmarsh: only relative to the free stream.** The nacelle-wind model
+  raises few alerts in wakes (11 % against 30 %), because the anemometer
+  in the wake reads low. A free-stream model needs the wake correction:
+  without it 59 % of its alert time is waked, with it 34 %, close to the
+  30 % base rate. Its test gap (+8 points) is no better than the
+  nacelle-wind model's.
+- **The cost is accuracy:** a free-stream speed taken from other turbines,
+  on a uniform site without terrain effects, leaves constant offsets per
+  turbine of −19 % to +15 % (they cancel in alert thresholds, which each
+  turbine sets on its own 2021 scores) and a test nRMSE of 7–9 %, against
+  3.5–3.8 % for the nacelle-wind model. Fewer alerts partly reflect wider
+  thresholds on noisier residuals; event detection stays at chance.
+
+## 7. Fault case studies
 
 Each figure shows one turbine's fleet-relative residual for all four
 thermal variants as 7-day means: 0 means the turbine runs like the rest of
@@ -244,7 +318,7 @@ supply, but the signal is small compared with the turbine's normal offset
 and with the week-to-week spread, so this case alone would not justify an
 inspection.
 
-## 7. Limitations
+## 8. Limitations
 
 - **Labels are not failures.** The status logs record stops and alarms, not
   component replacements or inspections. There are no main-bearing events
@@ -265,14 +339,19 @@ inspection.
 - **Cross-site** covers two farms of one manufacturer and rated power; the
   pooled thermal physics and the PINN's mean embedding are simple ways to
   serve unseen turbines, not tuned ones.
+- **Wakes:** PyWake runs on a uniform site with all turbines assumed in
+  operation (a stopped upstream turbine casts no wake) and generic power and
+  thrust curves; the free stream comes from the other turbines' nacelle
+  anemometers, which carry their own rotor and terrain effects.
 - **Data gaps:** January 2023 and all of 2024 are missing for Penmanshiel
   T01–T10; Penmanshiel pitch, gear-oil and main-bearing temperatures start
   in mid-2018. Kelmarsh yaw offsets cannot be identified from the data.
 
-## 8. Reproduce
+## 9. Reproduce
 
 ```bash
 make setup data ontology train alerts evaluate curves cross-site report
+# make train includes the wake models (make wake runs them alone)
 ```
 
 `make report` takes about 20 s once the earlier steps have run. It rewrites

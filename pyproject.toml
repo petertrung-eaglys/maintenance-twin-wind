@@ -7,6 +7,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "openpyxl>=3.1.5",
     "pandas>=3.1.1",
+    "py-wake>=2.6.20",
     "pyarrow>=26.0.1",
     "pyyaml>=6.0.3",
     "rdflib>=7.6.0",

@@ -13,7 +13,8 @@ behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw),
 §7.9 (thermal models: physics, baseline, hybrid, PINN), §7.10 (alerts,
 evaluation; then fleet-relative scores, drift alerts, curves), §7.11
-(cross-site experiment), §7.12 (report).
+(cross-site experiment), §7.12 (report), §7.13 (stretch: wake-aware
+power).
 
 ## Package management: uv only
 
@@ -30,7 +31,8 @@ make download  # fetch into data/raw/<farm>/ (MD5-verified, skips), unzip
 make inspect   # raw structure, column coverage, events (~1 min)
 make data      # load_scada -> events -> clean (~9 min, order matters)
 make ontology  # rewrite ontology/wind_twin.ttl (~2 s; rerun later steps)
-make train     # power, pitch, yaw (~2 min), thermal (~15 min); nice'd
+make train     # power, wake, pitch, yaw (~3 min), thermal (~15 min); nice'd
+make wake      # wake-aware power alone (~40 s); then alerts/evaluate/report
 make alerts    # residual alerts -> graph, models/alerts.json (~15 s)
 make evaluate  # alerts vs fault events -> models/evaluation.json (~15 s)
 make curves    # detection vs false alarms, 6 thresholds -> models/curves.json
@@ -118,6 +120,12 @@ flat in `tests/` (`test_<module>.py`).
 - `physics_power.py`: `PhysicsPowerModel` (Cp(v_n) per turbine type,
   aerodynamic bins only, uses each turbine's rotor area) and
   `HybridPowerModel` (physics + LightGBM residual per turbine).
+- `wake.py` (§7.13): `WakeTable` (PyWake speed ratios per turbine, wd, ws;
+  `lookup`), `wake_table` (Bastankhah–Porté-Agel, rotor averaging, k),
+  `free_stream` (farm direction, mean speed of unwaked turbines),
+  `turbine_views`, `variant_outputs` (`freestream`, `wake` PowerModels),
+  `calibrate_k` (k per farm from training rows, `brentq`), `bias_records`
+  → `models/wake.json`; `PhysicsPowerModel.from_dict` loads saved curves.
 - `pitch.py`: `PhysicsPitchModel` (binned pitch(v_n) per turbine type, NaN
   below rated wind speed), `HybridPitchModel`; metrics in degrees.
 - `yaw.py`: `YawModel` (per turbine, `a·cos^k(γ − γ₀)` of the power
@@ -166,7 +174,8 @@ flat in `tests/` (`test_<module>.py`).
   `coverage.py` (normal-row share per month, signal availability),
   `comparison.py` (in-site means, cross-site panels/table), `detection.py`
   (detection vs chance), `cases.py` (fleet-relative case scores with
-  events), `style.py` (palette, `save`, `markdown_table`).
+  events), `wake.py` (waked share of power-alert time), `style.py`
+  (palette, `save`, `markdown_table`).
 - `docs/report.md` is hand-written around the generated figures and
   tables; update its numbers when results change.
 
@@ -252,6 +261,11 @@ flat in `tests/` (`test_<module>.py`).
   PEN T15 has −273.2 °C placeholders (18–21 Apr 2024, non-normal rows).
 - PEN T15's 2024 gear-oil inlet jump is inlet-only (sump unchanged):
   report it as cooler/sensor work, not overheating.
+- Wakes: never multiply a wake loss into the nacelle-wind physics model
+  (its wind is already waked). On Kelmarsh waked rows even over-perform
+  vs that model (anemometer reads low in wakes). PyWake default k = 0.032
+  with hub-centre deficits is far too deep here; k is fitted per farm on
+  training rows (KLM ~0.04, PEN ~0.12).
 - Define functions above `if __name__ == "__main__":`; ruff does not flag
   a function appended below it (NameError at run time).
 - Thermal frames must stay sorted by timestamp and contiguous (the free

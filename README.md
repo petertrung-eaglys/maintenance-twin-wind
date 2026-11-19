@@ -137,6 +137,16 @@ model comparison, cross-site, detection vs chance, fault case studies)
 into `docs/figures/` and prints the report's tables as Markdown. It reads
 the processed data, `models/*.json` and the graph, so run it last.
 
+```bash
+make wake         # wake-aware power models alone (~40 s; part of train)
+```
+
+`make wake` fits the wake expansion per farm, writes
+`expected_power_freestream` and `expected_power_wake`, the PyWake ratio
+table `models/<farm>/wake_ratios.json` and `models/wake.json` (fitted k,
+waked/free bias per turbine), and registers the models in the graph. Rerun
+`make alerts evaluate curves report` afterwards.
+
 Every pipeline script runs standalone with
 `uv run python -m src.<package>.<name>` and has a Makefile target (added
 per milestone). `src/` is grouped by concern: `data/` (raw files to clean
@@ -509,7 +519,7 @@ Test-period episodes, component scope: Kelmarsh gearbox 8 (27 events),
 pitch 9, yaw 5, no generator events; Penmanshiel gearbox 111 (288 events),
 generator 13, pitch 22, yaw 5. Signal scope: Kelmarsh gearbox 2,
 Penmanshiel gearbox 45, and no generator-bearing or stator trips on
-either farm. No main-bearing events. 3,478 alerts after train_end
+either farm. No main-bearing events. 3,478 alerts after train_end (before the §7.13 wake variants)
 (Kelmarsh 1,477, Penmanshiel 2,001; 13,404 before merging, load filter
 and fleet-relative scoring); 133 test alerts precede an episode
 (`kt:precedes`); 176 drift alerts.
@@ -571,7 +581,7 @@ stored in `models/evaluation.json` and `models/curves.json`.
     variants), alongside 97 gearbox events from 2022 on. The jump follows a
     3-day sensor-module outage (18–21 April 2024) and the gear-oil sump
     temperature does not move, so it more likely reflects cooler or sensor
-    work than a hotter gearbox (`docs/report.md` §6).
+    work than a hotter gearbox (`docs/report.md` §7).
   - KLM T06 gear-oil inlet +6 °C from 2022, followed only by five
     "Implausible gear speed" events (a sensor fault, probably unrelated).
 - **Generator drift alerts are not specific:** they flag 13 of 20
@@ -619,6 +629,40 @@ target: `models/cross_site.json` or `make cross-site` output.)
 - Largest thermal losses for every variant are the main bearings
   (rear bearing: 2.1 → 7–9 °C): the two farms' main-bearing temperatures
   differ in level more than any input explains.
+
+Wake-aware expected power (§7.13, stretch; `src/models/wake.py`, part of
+`make train`, alone `make wake`): two more PowerModel variants predict
+from the farm's free-stream wind instead of each turbine's own nacelle
+wind. **freestream** = physics curve at the free-stream speed (mean nacelle
+speed of the turbines not waked in the current farm direction);
+**wake** = physics curve at free-stream speed × the turbine's PyWake speed
+ratio (Bastankhah–Porté-Agel Gaussian wake model, 7-point rotor averaging,
+generic turbines from the static files). The wake expansion k is fitted
+per farm on training rows (waked and free rows equally biased): **KLM
+0.040, PEN 0.117**.
+
+| Farm | Variant | Test nRMSE | Waked − free residual (5–10 m/s) | Power alerts | Waked share of alert time |
+|---|---|---|---|---|---|
+| KLM | physics (nacelle) | 3.81 % | +6.0 pts | 77 | 11 % (base 30 %) |
+| KLM | freestream | 9.45 % | −27.2 pts | 42 | 59 % |
+| KLM | wake | 7.20 % | +8.0 pts | 71 | 34 % |
+| PEN | physics (nacelle) | 3.52 % | −4.0 pts | 186 | 62 % (base 47 %) |
+| PEN | freestream | 9.38 % | −14.9 pts | 105 | 40 % |
+| PEN | wake | 8.56 % | −1.6 pts | 111 | 28 % |
+
+- **Penmanshiel:** the nacelle-wind physics model's underperformance
+  alerts over-represent waked time; the wake model cuts waked alert time
+  from 8,026 to 1,660 hours and false alarms from 4.8 to 2.6 per
+  turbine-year. Detection of generator episodes stays at chance (1/13 vs
+  chance 0.31).
+- **Kelmarsh:** the waked anemometer reads low, so the nacelle-wind model
+  over-predicts *less* in wakes and raises few waked alerts; the wake
+  correction matters only for a free-stream model (59 % → 34 % waked).
+- Free-stream models are 2–3 times less accurate: the free stream comes
+  from other turbines on a uniform site, leaving per-turbine offsets of
+  −19 % to +15 % (PEN T07 −19 %, T12 +15 %), absorbed by each turbine's
+  own 2021 threshold. With PyWake's default k = 0.032 and hub-centre
+  deficits the waked residual was +27 % (KLM) and +43 % (PEN): far too deep.
 
 ## Testing and linting
 
@@ -958,6 +1002,17 @@ make lint         # uv run ruff check .
     so its numbers are a snapshot of the 2026-11-19 run.
   - Colours, case studies and figure settings live in `config.yaml`
     (`report`).
+- Wake-aware power (§7.13), decided with the user:
+  - The spec multiplies a wake loss into the physics power model, but that
+    model uses each turbine's own nacelle wind speed, which the wake has
+    already lowered (double counting; on Kelmarsh the waked residual even
+    has the opposite sign). The wake loss is instead applied to a
+    free-stream wind speed estimated from the unwaked turbines, as a
+    PyWake speed ratio fed through the physics curve.
+  - PyWake needed rotor averaging and a per-farm wake expansion k, fitted
+    on training rows (not test rows).
+  - `make train` runs it after the physics power step; `make wake` runs it
+    alone.
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

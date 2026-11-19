@@ -115,6 +115,19 @@ class PhysicsPowerModel:
             "count": self.cp_curve["count"].astype(int).tolist(),
         }
 
+    @classmethod
+    def from_dict(cls, physics: dict[str, Any], saved: dict[str, list[float]]) -> Self:
+        """A fitted model from a curve saved with `to_dict`."""
+        model = cls(physics)
+        model.cp_curve = pd.DataFrame(
+            {
+                "x": saved["wind_speed_normalised"],
+                "y": saved["cp"],
+                "count": saved["count"],
+            }
+        )
+        return model
+
 
 class HybridPowerModel(ResidualModel):
     """Physics prediction plus a learned residual, clipped to [0, rated]."""

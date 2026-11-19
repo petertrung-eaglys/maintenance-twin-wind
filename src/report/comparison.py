@@ -85,8 +85,15 @@ def comparison_figure(
         ax.set_title(title, loc="left")
         ax.set_xlabel("")
     axes[2].tick_params(axis="x", labelrotation=20)
-    handles, labels = axes[2].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="outside upper center", ncols=len(labels))
+    entries = {
+        label: handle
+        for ax in axes
+        for handle, label in zip(*ax.get_legend_handles_labels(), strict=True)
+    }
+    order = [v for v in colors if v in entries]
+    fig.legend(
+        [entries[v] for v in order], order, loc="outside upper center", ncols=len(order)
+    )
     return fig
 
 

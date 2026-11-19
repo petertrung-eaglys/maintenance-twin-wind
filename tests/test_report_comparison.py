@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from src.report.comparison import (
+    comparison_figure,
     cross_site_figure,
     cross_site_panels,
     cross_site_table,
@@ -99,3 +100,26 @@ def test_cross_site_figure_keeps_the_variant_order_in_every_panel() -> None:
 
     labels = [[t.get_text() for t in ax.get_xticklabels()] for ax in fig.axes]
     assert labels == [["physics", "baseline"], ["physics", "pinn"]]
+
+
+def test_comparison_legend_lists_every_variant_in_the_configured_order() -> None:
+    power = pd.DataFrame(
+        {"physics": [3.8], "wake": [7.2]},
+        index=pd.MultiIndex.from_tuples([("power", "KLM")], names=["target", "f"]),
+    )
+    pitch = pd.DataFrame(
+        {"physics": [1.0]},
+        index=pd.MultiIndex.from_tuples([("pitch", "KLM")], names=["target", "f"]),
+    )
+    thermal = pd.DataFrame(
+        {"physics": [3.0], "pinn": [2.0]},
+        index=pd.MultiIndex.from_tuples(
+            [("stator_temp", "KLM")], names=["target", "f"]
+        ),
+    )
+    colors = COLORS | {"wake": "#008300"}
+
+    fig = comparison_figure(power, pitch, thermal, colors)
+
+    labels = [t.get_text() for t in fig.legends[0].get_texts()]
+    assert labels == ["physics", "pinn", "wake"]

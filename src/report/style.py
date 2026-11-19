@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use("Agg")  # files only, no display
 
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
@@ -54,14 +55,18 @@ def save(fig: Figure, path: Path, dpi: int) -> Path:
     return path
 
 
+def cell(value: Any, digits: int) -> str:
+    """A table cell: floats rounded, missing numbers as a dash."""
+    if isinstance(value, float):
+        return "–" if np.isnan(value) else f"{value:.{digits}f}"
+    return str(value)
+
+
 def markdown_table(frame: pd.DataFrame, digits: int = 2) -> str:
     """A DataFrame as a GitHub Markdown table (index as the first columns),
     numbers rounded to `digits`."""
     flat = frame.reset_index()
-    cells = [
-        [f"{v:.{digits}f}" if isinstance(v, float) else str(v) for v in row]
-        for row in flat.itertuples(index=False)
-    ]
+    cells = [[cell(v, digits) for v in row] for row in flat.itertuples(index=False)]
     header = [str(c) for c in flat.columns]
     lines = [header, ["---"] * len(header), *cells]
     return "\n".join("| " + " | ".join(line) + " |" for line in lines)

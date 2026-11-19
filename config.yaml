@@ -384,6 +384,28 @@ evaluation:
       - Thermistor generator
   # Detection vs false alarms: thresholds at these calibration quantiles
   curve_quantiles: [0.9, 0.95, 0.98, 0.99, 0.995, 0.999]
+wake:
+  # §7.13 wake-aware expected power. PyWake Bastankhah-Porte-Agel (2014)
+  # Gaussian wake model per farm from the static-file layout, one generic
+  # turbine per hub height (rotor and rated power from the static file).
+  # Gives each turbine's speed ratio (waked / free-stream wind speed) per
+  # wind direction and speed; uniform site, all turbines assumed running.
+  turbulence_intensity: 0.1
+  rotor_average_points: 7        # CGIRotorAvg: deficit averaged over the rotor
+  # Wake expansion k per farm, fitted on the training rows (no test data):
+  # the k at which waked and free rows have the same mean residual below
+  # rated. Hub-centre deficits with PyWake's default k = 0.032 were far
+  # too deep for these onshore sites (README).
+  k_range: [0.02, 0.2]
+  k_tolerance: 0.001
+  wd_step_deg: 2
+  ws_range: [3, 25]              # m/s, 1 m/s grid
+  # A turbine counts as free (unwaked) when its speed ratio is at least
+  # free_ratio; the farm's free-stream wind speed is the mean nacelle wind
+  # speed of its free turbines on normal rows.
+  free_ratio: 0.98
+  # Direction bias of the residual (waked vs free rows), below rated
+  bias_wind_speed: [5.0, 10.0]
 yaw:
   # Static yaw misalignment per turbine (yaw.py): power ratio to the
   # turbine's training power curve vs measured misalignment, fitted as
@@ -433,6 +455,22 @@ models:
     lightgbm:
       n_estimators: 300
       n_jobs: *threads
+  power_freestream:
+    # §7.13: physics curve at the farm's free-stream wind speed (estimated
+    # from the turbines that are not waked in the current direction)
+    model_class: PowerModel
+    component: generator
+    variant: freestream
+    inputs: [wind_speed, wind_direction, ambient_temp]
+    target: power
+  power_wake:
+    # §7.13: physics curve at free-stream speed x the PyWake speed ratio of
+    # this turbine for the farm's wind direction and speed
+    model_class: PowerModel
+    component: generator
+    variant: wake
+    inputs: [wind_speed, wind_direction, ambient_temp]
+    target: power
   pitch_physics:
     # binned pitch(v_n) per turbine type, above rated wind speed only
     model_class: PitchModel
@@ -504,7 +542,10 @@ report:
       baseline: "#eb6834"
       hybrid: "#1baf7a"
       pinn: "#eda100"
-  variant_markers: {physics: o, baseline: s, hybrid: D, pinn: "^"}
+      freestream: "#e87ba4"
+      wake: "#008300"
+  variant_markers:
+    {physics: o, baseline: s, hybrid: D, pinn: "^", freestream: v, wake: P}
   # Detection scatter: models with at least this many test episodes
   min_episodes: 5
   # Fault case studies: fleet-relative residual score of every thermal
@@ -516,3 +557,6 @@ report:
     - {farm: penmanshiel, turbine_id: T09, target: gear_oil_inlet_temp, component: gearbox}
     - {farm: penmanshiel, turbine_id: T15, target: gear_oil_inlet_temp, component: gearbox}
   max_event_types: 3             # most frequent messages get own markers
+  # Wake figure: a row counts as waked when the wake variant expects less
+  # than this share of the free-stream power (§7.13)
+  wake_power_ratio: 0.95
