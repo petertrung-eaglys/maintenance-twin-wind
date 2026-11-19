@@ -12,7 +12,8 @@ behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 (load, events, clean), §7.5 (ontology), §7.6–7.7 (modelling conventions,
 LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw),
 §7.9 (thermal models: physics, baseline, hybrid, PINN), §7.10 (alerts,
-evaluation; then fleet-relative scores, drift alerts, curves).
+evaluation; then fleet-relative scores, drift alerts, curves), §7.11
+(cross-site experiment).
 
 ## Package management: uv only
 
@@ -33,6 +34,7 @@ make train     # power, pitch, yaw (~2 min), thermal (~15 min); nice'd
 make alerts    # residual alerts -> graph, models/alerts.json (~15 s)
 make evaluate  # alerts vs fault events -> models/evaluation.json (~15 s)
 make curves    # detection vs false alarms, 6 thresholds -> models/curves.json
+make cross-site # train on one farm, test on the other (~30 min, resumes)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -49,7 +51,8 @@ survive a session disconnect, and keep `compute.threads` and `nice`.
 
 `src/` is grouped by concern: `data/` (raw files → clean Parquet),
 `graph/` (the RDF graph), `models/` (normal-behaviour models), `health/`
-(alerts and their evaluation). Tests stay
+(alerts and their evaluation), `experiments/` (studies that register
+nothing in the graph). Tests stay
 flat in `tests/` (`test_<module>.py`).
 
 - `src/storage.py`: `write_parquet` (atomic: temp file, fsync, rename).
@@ -146,6 +149,15 @@ flat in `tests/` (`test_<module>.py`).
 - `curves.py`: `threshold_alerts` (alerts at one quantile), `lift`; writes
   `models/curves.json`.
 
+`src/experiments/`:
+
+- `cross_site.py` (§7.11): `compare` (in-site vs cross-site RMSE on the
+  same rows), `summarise`, `power_experiment`, `thermal_experiment` (one
+  target), `save_part`/`load_part` (per-signal results in
+  `models/cross_site/`; a rerun skips saved signals). Uses
+  `ThermalPhysicsModel(pooled=True)` and
+  `ThermalPINN(unseen_turbines="mean")`.
+
 ## Rules (spec §8)
 
 - Run `inspect_data.py` before writing the loader; never guess column names.
@@ -220,6 +232,10 @@ flat in `tests/` (`test_<module>.py`).
   (p = 0.074), generator drift alerts are not specific.
 - Thermal LightGBM: a monotone constraint on ambient/nacelle temperature
   was tried and removed (worse: nacelle temperature falls at high power).
+- Cross-site: power physics/hybrid transfer far better than LightGBM;
+  thermal physics degrades least but LightGBM stays most accurate on the
+  other farm in 8 of 14 cases. Main bearings transfer worst (level
+  differs between farms).
 - Define functions above `if __name__ == "__main__":`; ruff does not flag
   a function appended below it (NameError at run time).
 - Thermal frames must stay sorted by timestamp and contiguous (the free

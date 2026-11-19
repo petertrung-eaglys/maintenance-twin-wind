@@ -1,4 +1,4 @@
-.PHONY: setup download inspect data ontology train alerts evaluate curves test lint
+.PHONY: setup download inspect data ontology train alerts evaluate curves cross-site test lint
 
 setup:
 	uv sync
@@ -36,6 +36,9 @@ evaluate:
 
 curves:
 	$(NICE) uv run python -m src.health.curves
+
+cross-site:
+	$(NICE) uv run python -m src.experiments.cross_site
 
 test:
 	uv run pytest

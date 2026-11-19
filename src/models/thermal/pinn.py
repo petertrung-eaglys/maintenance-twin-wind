@@ -73,8 +73,11 @@ class Network(nn.Module):
 
     def forward(self, features: torch.Tensor, turbine: torch.Tensor) -> torch.Tensor:
         """Standardised temperature per row."""
-        joined = torch.cat([features, self.embedding(turbine)], dim=1)
-        return self.mlp(joined).squeeze(-1)
+        return self.head(features, self.embedding(turbine))
+
+    def head(self, features: torch.Tensor, embedded: torch.Tensor) -> torch.Tensor:
+        """Standardised temperature from features and turbine embeddings."""
+        return self.mlp(torch.cat([features, embedded], dim=1)).squeeze(-1)
 
 
 class ThermalPINN:
@@ -87,8 +90,12 @@ class ThermalPINN:
         interval_minutes: int,
         features: list[str],
         seed: int = 0,
+        unseen_turbines: str = "error",
     ) -> None:
+        """`unseen_turbines`: "error" (KeyError for a turbine not fitted on)
+        or "mean" (use the mean turbine embedding, for cross-site use)."""
         self.target = target
+        self.unseen_turbines = unseen_turbines
         self.thermal = thermal
         self.interval = pd.Timedelta(minutes=interval_minutes)
         self.steps_per_hour = MINUTES_PER_HOUR / interval_minutes
@@ -223,7 +230,7 @@ class ThermalPINN:
         keys = frame["turbine_key"].unique()
         if len(keys) != 1:
             raise ValueError(f"expected one turbine per frame, got {keys}")
-        index = {k: i for i, k in enumerate(self.keys)}[keys[0]]
+        embedded = self._embedding(keys[0])
         x = self._standardised(frame)
         rows = np.flatnonzero(np.isfinite(x).all(1))
         out = np.full(len(frame), np.nan)
@@ -233,11 +240,21 @@ class ThermalPINN:
                 features = torch.tensor(
                     x[chunk], device=self.device, dtype=torch.float32
                 )
-                turbine = torch.full((len(chunk),), index, device=self.device)
-                out[chunk] = (
-                    self._degrees(self.network(features, turbine)).cpu().numpy()
+                standardised = self.network.head(
+                    features, embedded.expand(len(chunk), -1)
                 )
+                out[chunk] = self._degrees(standardised).cpu().numpy()
         return out
+
+    def _embedding(self, key: str) -> torch.Tensor:
+        """The turbine's learned embedding (1 x dim); for an unseen turbine
+        the mean embedding if allowed, else KeyError."""
+        weights = self.network.embedding.weight
+        if key in self.keys:
+            return weights[self.keys.index(key)].unsqueeze(0)
+        if self.unseen_turbines == "mean":
+            return weights.mean(dim=0, keepdim=True)
+        raise KeyError(key)
 
     def save(self, path: Path) -> None:
         """Network weights, turbine keys, features and standardisation."""

@@ -813,3 +813,19 @@ and the Kelmarsh repo tag the code was derived from.
   Penmanshiel gearbox episodes); gearbox drift alerts flag the turbines
   with the most gearbox events (exact permutation p = 0.074); generator
   drift alerts are not specific.
+
+### Milestone 7.11: cross-site experiment (2026-11-19)
+
+- `src/experiments/cross_site.py` (`make cross-site`): every power and
+  thermal variant fitted on one farm's training years, scored on the
+  other farm's test rows against the in-site model on the same rows, both
+  directions; `models/cross_site.json`, saved per signal under
+  `models/cross_site/` so an interrupted run resumes.
+- `ThermalPhysicsModel(pooled=True)`: one parameter set for all
+  turbines; `ThermalPINN(unseen_turbines="mean")`: mean embedding for
+  unseen turbines. Defaults unchanged.
+- Results: power supports the hypothesis (LightGBM +200–259 % RMSE
+  cross-site, physics +23–30 %, hybrid +35–37 %). Thermal physics has the
+  smallest increase on all 14 target × direction pairs (+38 % vs
+  +123–157 %), but LightGBM still has the lowest cross-site RMSE in 8 of
+  14; the thermal hybrid and PINN do not transfer better than LightGBM.

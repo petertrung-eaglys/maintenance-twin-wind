@@ -100,3 +100,13 @@ def test_pinn_rejects_an_unknown_turbine() -> None:
 
     with pytest.raises(KeyError):
         model.predict(frames["KLM_T01"].assign(turbine_key="PEN_T15"))
+
+
+def test_pinn_can_predict_an_unseen_turbine_with_the_mean_embedding() -> None:
+    frames = {k: synthetic(k, seed=i) for i, k in enumerate(OFFSET)}
+    model = ThermalPINN(
+        "temp", THERMAL, 10, FEATURES, seed=0, unseen_turbines="mean"
+    ).fit(frames)
+    unseen = frames["KLM_T01"].assign(turbine_key="KLM_T09")
+
+    assert np.isfinite(model.predict(unseen)).all()

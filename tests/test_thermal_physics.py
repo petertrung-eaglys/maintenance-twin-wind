@@ -182,3 +182,18 @@ def test_fit_learns_a_regulated_temperature() -> None:
 
     rmse = np.sqrt(np.nanmean((model.predict(frame) - frame["temp"]) ** 2))
     assert rmse < 0.5
+
+
+def test_pooled_fit_shares_one_parameter_set_for_unseen_turbines() -> None:
+    frames = {
+        "KLM_T01": synthetic("KLM_T01", params=TRUE["KLM_T01"]),
+        "KLM_T02": synthetic("KLM_T02", seed=1, params=TRUE["KLM_T01"]),
+    }
+    model = ThermalPhysicsModel(
+        "temp", THERMAL, interval_minutes=10, seed=0, pooled=True
+    ).fit(frames)
+    unseen = synthetic("KLM_T01", seed=2).assign(turbine_key="PEN_T05")
+
+    rmse = np.sqrt(np.nanmean((model.predict(unseen) - unseen["temp"]) ** 2))
+
+    assert rmse < 0.3

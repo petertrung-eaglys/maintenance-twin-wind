@@ -116,6 +116,18 @@ table, drift alerts with the events after them); `make alerts` also writes
 the drift alerts to `models/drift_alerts.json`. `make curves` writes
 `models/curves.json`. Run them in this order after `make train`.
 
+```bash
+make cross-site   # train on one farm, test on the other (~30 min, GPU)
+```
+
+`make cross-site` fits every power and thermal variant on one farm's
+training years and scores it on the other farm's test rows, in both
+directions, next to the in-site predictions from `make train` (run that
+first). It writes `models/cross_site.json` (RMSE per turbine, signal and
+variant) and prints the mean per direction. Each signal is also saved to
+`models/cross_site/<signal>.json` when it is done; a rerun skips the saved
+signals (delete the folder to recompute). Nothing is written to the graph.
+
 Every pipeline script runs standalone with
 `uv run python -m src.<package>.<name>` and has a Makefile target (added
 per milestone). `src/` is grouped by concern: `data/` (raw files to clean
@@ -548,6 +560,45 @@ stored in `models/evaluation.json` and `models/curves.json`.
 - The yearly drift table (each year's mean score minus 2021's) in
   `evaluation.json` gives the same picture per model.
 
+Cross-site experiment (§7.11): each variant is trained on one farm (MM92,
+92 m rotor, Kelmarsh; MM82, 82 m, Penmanshiel) and tested on the other.
+Mean test RMSE over the test farm's turbines, in-site → cross-site, on the
+same rows (normal, after 2021, every prediction defined):
+
+| Signal | Variant | KLM → PEN | Increase | PEN → KLM | Increase |
+|---|---|---|---|---|---|
+| power (kW) | baseline | 64.1 → 230.0 | +259 % | 75.1 → 225.2 | +200 % |
+| power (kW) | physics | 72.1 → 93.7 | +30 % | 78.1 → 96.0 | +23 % |
+| power (kW) | hybrid | 67.2 → 90.8 | +35 % | 75.0 → 102.6 | +37 % |
+| 7 temperatures (°C, mean) | baseline | 2.4 → 4.9 | +124 % | | |
+| | physics | 3.9 → 5.2 | +38 % | | |
+| | hybrid | 2.4 → 4.9 | +123 % | | |
+| | pinn | 2.4 → 5.5 | +157 % | | |
+
+(The temperature rows average both directions and all 7 targets; the
+increase is the mean of the 14 per-target increases. Per direction and
+target: `models/cross_site.json` or `make cross-site` output.)
+
+- **Power: the hypothesis holds.** The LightGBM baseline, which has no
+  rotor-size input, triples its error on the other farm; the physics
+  model (Cp curve per type, scaled by each turbine's rotor area) loses
+  only 23–30 % and becomes the most accurate cross-site model in one
+  direction, the hybrid in the other.
+- **Temperatures: physics transfers most robustly, but not most
+  accurately.** The physics heat balance has the smallest relative
+  increase for all 14 target × direction pairs (+38 % on average vs
+  +123–157 % for the ML variants), yet the ML variants start so much
+  better in-site that the LightGBM baseline still has the lowest
+  cross-site RMSE in 8 of 14 pairs (physics, hybrid and PINN 2 each).
+  Mean cross-site RMSE KLM → PEN: baseline 4.90, hybrid 5.04, physics
+  5.73, PINN 6.29 °C; PEN → KLM: all four within 4.66–4.85 °C.
+- The thermal hybrid transfers like the ML baseline (its residual model
+  dominates); the PINN transfers worst (its mean turbine embedding is a
+  poor stand-in for an unseen turbine; gear oil KLM → PEN: 1.5 → 9.1 °C).
+- Largest thermal losses for every variant are the main bearings
+  (rear bearing: 2.1 → 7–9 °C): the two farms' main-bearing temperatures
+  differ in level more than any input explains.
+
 ## Testing and linting
 
 ```bash
@@ -863,6 +914,19 @@ make lint         # uv run ruff check .
     the code was removed.
   - Not done: CPU-only thermal training and a GPU power limit (the user
     left these out).
+- Cross-site experiment (§7.11):
+  - Spec periods "train 2016–2021, test 2022–2024" are applied as in the
+    in-site models: fit up to `train_end` (2020), test after
+    `calibration_end` (2021), so in-site and cross-site RMSE use the same
+    rows and the in-site predictions from `make train` can be reused.
+  - One model per farm must serve unseen turbines: the thermal physics
+    model is pooled (one parameter set, `pooled=True`), the PINN uses its
+    mean turbine embedding (`unseen_turbines="mean"`); the in-site models
+    keep per-turbine parameters and embeddings.
+  - Lives in `src/experiments/` (not `src/models/`): it registers no
+    models in the graph and only writes `models/cross_site.json`.
+  - The first run was lost when the workstation reset after 9 minutes, so
+    results are saved per signal and a rerun resumes.
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

@@ -34,6 +34,7 @@ INITIAL_RAW = (0.0, 0.0, 0.0, -3.0, -3.0)
 # the turbine's median training temperature.
 INITIAL_COOLER_RAW = -5.0
 NO_COOLER = (0.0, float("inf"))
+POOLED = "pooled"  # parameter key of a pooled model
 
 
 def device_of(thermal: dict[str, Any]) -> torch.device:
@@ -187,7 +188,8 @@ def physical(raw: torch.Tensor) -> dict[str, float]:
 
 class ThermalPhysicsModel:
     """Heat-balance parameters per turbine (keyed by turbine key) for one
-    temperature target."""
+    temperature target. With `pooled`, one parameter set is fitted on all
+    turbines and used for any turbine, also unseen ones (cross-site)."""
 
     def __init__(
         self,
@@ -195,11 +197,13 @@ class ThermalPhysicsModel:
         thermal: dict[str, Any],
         interval_minutes: int,
         seed: int = 0,
+        pooled: bool = False,
     ) -> None:
         self.target = target
         self.thermal = thermal
         self.interval = pd.Timedelta(minutes=interval_minutes)
         self.seed = seed
+        self.pooled = pooled
         self.params: dict[str, dict[str, float]] = {}
 
     def fit(self, train_frames: Mapping[str, pd.DataFrame]) -> Self:
@@ -207,13 +211,16 @@ class ThermalPhysicsModel:
         (contiguous rows; the loss uses normal rows only)."""
         torch.manual_seed(self.seed)
         device = device_of(self.thermal)
-        keys = list(train_frames)
+        keys = [POOLED] if self.pooled else list(train_frames)
         parts = [
             sequences(f, self.target, self.thermal, self.interval)
             for f in train_frames.values()
         ]
         owner = np.concatenate(
-            [np.full(len(p["temp"]), i) for i, p in enumerate(parts)]
+            [
+                np.full(len(p["temp"]), 0 if self.pooled else i)
+                for i, p in enumerate(parts)
+            ]
         )
         data = {
             name: torch.tensor(
@@ -224,10 +231,10 @@ class ThermalPhysicsModel:
             for name in parts[0]
         }
         index = torch.tensor(owner, device=device)
-        set_points = [
-            float(np.nanmedian(f[self.target])) if f[self.target].notna().any() else 0.0
-            for f in train_frames.values()
-        ]
+        temps = [f[self.target] for f in train_frames.values()]
+        if self.pooled:
+            temps = [pd.concat(temps)]
+        set_points = [float(np.nanmedian(s)) if s.notna().any() else 0.0 for s in temps]
         theta = torch.tensor(
             [[*INITIAL_RAW, INITIAL_COOLER_RAW, s] for s in set_points],
             device=device,
@@ -268,7 +275,7 @@ class ThermalPhysicsModel:
         keys = frame["turbine_key"].unique()
         if len(keys) != 1:
             raise ValueError(f"expected one turbine per frame, got {keys}")
-        params = self.params[keys[0]]
+        params = self.params[POOLED if self.pooled else keys[0]]
         alpha, beta = coefficients(frame, params, self.thermal)
         return simulate(
             alpha,
