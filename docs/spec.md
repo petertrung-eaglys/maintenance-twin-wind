@@ -842,3 +842,18 @@ and the Kelmarsh repo tag the code was derived from.
 - Checked and left alone: power model setup (one-line constructors, no
   shared logic) and `config.yaml` (one file kept: YAML anchors such as
   `*threads` do not work across files, and spec §6 defines one file).
+
+### Milestone 7.12: report (2026-11-19)
+
+- `docs/report.md` with 8 figures in `docs/figures/` from `make report`
+  (`src/report/`: `coverage`, `comparison`, `detection`, `cases`,
+  `style`, `build`); settings in `config.yaml` `report`; matplotlib added
+  (approved in §5).
+- Sections: summary, data overview and gaps, in-site model comparison,
+  cross-site, alerts and detection vs chance, three fault case studies
+  (KLM T04 gear oil, PEN T15 and T09 gear-oil inlet), limitations.
+- New data findings: Penmanshiel T01–T10 have no January 2023; PEN T15
+  logs −273.2 °C placeholders on 18–21 April 2024 (non-normal rows); PEN
+  T15's 2024 inlet jump is inlet-only (sump unchanged), so likely cooler or
+  sensor work rather than heat. README physics power means corrected
+  (3.96/3.37 → 3.81/3.52 %: stale values).

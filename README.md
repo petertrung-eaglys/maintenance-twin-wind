@@ -128,6 +128,15 @@ variant) and prints the mean per direction. Each signal is also saved to
 `models/cross_site/<signal>.json` when it is done; a rerun skips the saved
 signals (delete the folder to recompute). Nothing is written to the graph.
 
+```bash
+make report       # docs/figures/*.png and the report tables (~20 s)
+```
+
+`make report` writes the figures of `docs/report.md` (data coverage,
+model comparison, cross-site, detection vs chance, fault case studies)
+into `docs/figures/` and prints the report's tables as Markdown. It reads
+the processed data, `models/*.json` and the graph, so run it last.
+
 Every pipeline script runs standalone with
 `uv run python -m src.<package>.<name>` and has a Makefile target (added
 per milestone). `src/` is grouped by concern: `data/` (raw files to clean
@@ -180,6 +189,9 @@ From `make inspect` on both farms:
 
 ## Results
 
+The written report with figures is `docs/report.md`; this section keeps
+the full per-turbine results.
+
 **Data and cleaning (§7.4):**
 
 | Farm | Turbines | Rows | Normal | Normal rows 2016–2021 / 2022–2024 |
@@ -188,7 +200,10 @@ From `make inspect` on both farms:
 | Penmanshiel | 14 | 5,758,976 (386k–447k each) | 76.3 % (71.9–79.6 %) | 3,085,057 / 1,309,634 |
 
 - Penmanshiel T01–T10 run from 2016-06-06 to the end of 2023 (no 2024
-  data); T11–T15 to the end of 2024.
+  data); T11–T15 to the end of 2024. T01–T10 also have no January 2023
+  (their 2023 exports start on 1 February).
+- PEN T15 reports −273.2 °C (sensor module offline) on four temperatures
+  for 442 rows on 18–21 April 2024; none of them is a normal row.
 - Missing values: Kelmarsh 1.9–5.5 % for every signal. Penmanshiel
   2.2–4.8 %, except pitch, main-bearing and gear-oil temperatures at 25 %
   (no values before mid-2018 on any turbine).
@@ -284,8 +299,8 @@ nRMSE (RMSE / rated power):
 | PEN | T13 | 2.60 % | 2.92 % | 2.89 % |
 | PEN | T14 | 2.99 % | 3.43 % | 3.11 % |
 | PEN | T15 | 3.12 % | 3.83 % | 3.29 % |
-| **Mean** | KLM | 3.66 % | 3.96 % | 3.66 % |
-| **Mean** | PEN | 3.13 % | 3.37 % | 3.28 % |
+| **Mean** | KLM | 3.66 % | 3.81 % | 3.66 % |
+| **Mean** | PEN | 3.13 % | 3.52 % | 3.28 % |
 
 - One physics curve per turbine type is within 0.1–0.7 percentage points
   of a per-turbine LightGBM model, and better than it on PEN T08 (6.67 vs
@@ -543,14 +558,20 @@ stored in `models/evaluation.json` and `models/curves.json`.
   events on each farm (PEN T15: 97, KLM T04: 20). An exact permutation
   test of the flagged turbines' event ranks within each farm gives
   p = 0.074: suggestive, not significant with 3 flagged turbines per farm.
-  - KLM T04 gear oil runs **+5 °C above the rest of its farm** from July
-    2023 (all four variants, physics included); above 500 kW it rose from
-    about 50 to 54–56 °C. It followed 16 particle alarms in January–April
-    2023: debris first, heat later.
+  - KLM T04 gear oil runs **+3 to +5 °C above the rest of its farm** from
+    July 2023 (all four variants, physics included); above 500 kW its
+    quarterly median no longer follows the seasons (51–55 °C in 2022, about
+    57 °C in every quarter from Q3 2023). It followed 16 particle alarms in
+    January–April 2023: debris first, heat later.
   - PEN T09 gear-oil inlet drifts from May 2022, a year before its
-    "Missing gear oil" stops escalate (8 in Q3 2023, 14 in Q4 2023).
+    "Missing gear oil" stops escalate (8 in Q3 2023, 14 in Q4 2023); but
+    the drift is only +1–2 °C on top of an inlet that already ran 5–7 °C
+    above the farm in 2021.
   - PEN T15 gear-oil inlet runs up to +9 °C above its farm in 2024 (all
-    variants), alongside 97 gearbox events from 2022 on.
+    variants), alongside 97 gearbox events from 2022 on. The jump follows a
+    3-day sensor-module outage (18–21 April 2024) and the gear-oil sump
+    temperature does not move, so it more likely reflects cooler or sensor
+    work than a hotter gearbox (`docs/report.md` §6).
   - KLM T06 gear-oil inlet +6 °C from 2022, followed only by five
     "Implausible gear speed" events (a sensor fault, probably unrelated).
 - **Generator drift alerts are not specific:** they flag 13 of 20
@@ -927,6 +948,16 @@ make lint         # uv run ruff check .
     models in the graph and only writes `models/cross_site.json`.
   - The first run was lost when the workstation reset after 9 minutes, so
     results are saved per signal and a rerun resumes.
+- Report (§7.12):
+  - `src/report/` is a package (`build.py` plus one module per report
+    section: `coverage`, `comparison`, `detection`, `cases`, `style`)
+    rather than the single `src/report.py` of spec §6; run as
+    `uv run python -m src.report.build` (`make report`).
+  - The script writes the figures and prints the tables; `docs/report.md`
+    is written by hand around them (interpretation cannot be generated),
+    so its numbers are a snapshot of the 2026-11-19 run.
+  - Colours, case studies and figure settings live in `config.yaml`
+    (`report`).
 - `file_columns`, `read_signals` and `read_status` moved from
   `inspect_data.py` to `scada_format.py` so the pipeline does not import
   the inspection script.

@@ -487,3 +487,32 @@ models:
     model_class: ThermalModel
     variant: pinn
     inputs: [power, rotor_speed, ambient_temp, nacelle_temp]
+report:
+  # §7.12: figures for docs/report.md, written by `make report`
+  figures: docs/figures
+  dpi: 150
+  # Reference data-viz palette (light surface). Variants keep one colour in
+  # every figure, in this fixed categorical order.
+  colors:
+    surface: "#fcfcfb"
+    text: "#0b0b0b"
+    muted: "#52514e"
+    grid: "#e4e3df"
+    sequential: ["#cde2fb", "#86b6ef", "#2a78d6", "#1c5cab", "#0d366b"]
+    variants:
+      physics: "#2a78d6"
+      baseline: "#eb6834"
+      hybrid: "#1baf7a"
+      pinn: "#eda100"
+  variant_markers: {physics: o, baseline: s, hybrid: D, pinn: "^"}
+  # Detection scatter: models with at least this many test episodes
+  min_episodes: 5
+  # Fault case studies: fleet-relative residual score of every thermal
+  # variant before real events of the component (README "Drift alerts")
+  case_start: "2021-01-01"
+  case_resample: 7D              # plotted mean per period (daily is too noisy)
+  cases:
+    - {farm: kelmarsh, turbine_id: T04, target: gear_oil_temp, component: gearbox}
+    - {farm: penmanshiel, turbine_id: T09, target: gear_oil_inlet_temp, component: gearbox}
+    - {farm: penmanshiel, turbine_id: T15, target: gear_oil_inlet_temp, component: gearbox}
+  max_event_types: 3             # most frequent messages get own markers

@@ -13,7 +13,7 @@ behaviour. Done so far: §7.1 (scaffold), §7.2 (download), §7.3
 LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw),
 §7.9 (thermal models: physics, baseline, hybrid, PINN), §7.10 (alerts,
 evaluation; then fleet-relative scores, drift alerts, curves), §7.11
-(cross-site experiment).
+(cross-site experiment), §7.12 (report).
 
 ## Package management: uv only
 
@@ -35,6 +35,7 @@ make alerts    # residual alerts -> graph, models/alerts.json (~15 s)
 make evaluate  # alerts vs fault events -> models/evaluation.json (~15 s)
 make curves    # detection vs false alarms, 6 thresholds -> models/curves.json
 make cross-site # train on one farm, test on the other (~30 min, resumes)
+make report    # docs/figures/*.png + report tables printed (~20 s)
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -52,7 +53,7 @@ survive a session disconnect, and keep `compute.threads` and `nice`.
 `src/` is grouped by concern: `data/` (raw files → clean Parquet),
 `graph/` (the RDF graph), `models/` (normal-behaviour models), `health/`
 (alerts and their evaluation), `experiments/` (studies that register
-nothing in the graph). Tests stay
+nothing in the graph), `report/` (figures and tables of docs/report.md). Tests stay
 flat in `tests/` (`test_<module>.py`).
 
 - `src/storage.py`: `write_parquet` (atomic: temp file, fsync, rename).
@@ -159,6 +160,16 @@ flat in `tests/` (`test_<module>.py`).
   `ThermalPhysicsModel(pooled=True)` and
   `ThermalPINN(unseen_turbines="mean")`.
 
+`src/report/` (§7.12; settings in `config.yaml` `report`):
+
+- `build.py` (entry point: figures to `docs/figures/`, tables printed),
+  `coverage.py` (normal-row share per month, signal availability),
+  `comparison.py` (in-site means, cross-site panels/table), `detection.py`
+  (detection vs chance), `cases.py` (fleet-relative case scores with
+  events), `style.py` (palette, `save`, `markdown_table`).
+- `docs/report.md` is hand-written around the generated figures and
+  tables; update its numbers when results change.
+
 ## Rules (spec §8)
 
 - Run `inspect_data.py` before writing the loader; never guess column names.
@@ -237,6 +248,10 @@ flat in `tests/` (`test_<module>.py`).
   thermal physics degrades least but LightGBM stays most accurate on the
   other farm in 8 of 14 cases. Main bearings transfer worst (level
   differs between farms).
+- Penmanshiel T01–T10 have no January 2023 (2023 files start 1 Feb).
+  PEN T15 has −273.2 °C placeholders (18–21 Apr 2024, non-normal rows).
+- PEN T15's 2024 gear-oil inlet jump is inlet-only (sump unchanged):
+  report it as cooler/sensor work, not overheating.
 - Define functions above `if __name__ == "__main__":`; ruff does not flag
   a function appended below it (NameError at run time).
 - Thermal frames must stay sorted by timestamp and contiguous (the free
