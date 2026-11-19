@@ -23,7 +23,8 @@ the run); delete that folder to recompute everything.
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from functools import cache, partial
 from pathlib import Path
 from typing import Any
 
@@ -41,17 +42,17 @@ from src.models.modelling import (
 )
 from src.models.physics_power import HybridPowerModel, PhysicsPowerModel, prepare
 from src.models.power_baseline import LightGBMPowerModel
-from src.models.residual import ResidualModel
 from src.models.thermal.baseline import LightGBMThermalModel
-from src.models.thermal.features import (
-    feature_columns,
-    normal_target_rows,
-    target_spec,
-)
+from src.models.thermal.features import feature_columns, normal_target_rows
 from src.models.thermal.physics import ThermalPhysicsModel
 from src.models.thermal.pinn import ThermalPINN
 from src.models.thermal.train import VARIANTS as THERMAL_VARIANTS
-from src.models.thermal.train import load_turbines, training_period
+from src.models.thermal.train import (
+    hybrid_model,
+    load_turbines,
+    training_period,
+    variant_specs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -186,10 +187,7 @@ def thermal_models(
     thermal, seed = config["thermal"], config["seed"]
     interval = config["sampling"]["interval_minutes"]
     features = feature_columns(thermal)
-    spec = {
-        v: target_spec(config["models"][f"thermal_{v}"], target, component)
-        for v in THERMAL_VARIANTS
-    }
+    spec = variant_specs(config["models"], target, component)
     physics = ThermalPhysicsModel(target, thermal, interval, seed, pooled=True).fit(
         train_frames
     )
@@ -198,14 +196,9 @@ def thermal_models(
         "baseline": LightGBMThermalModel(spec["baseline"], seed, target, features).fit(
             train_frames
         ),
-        "hybrid": ResidualModel(
-            physics,
-            spec["hybrid"] | {"features": features},
-            seed,
-            target,
-            rows=normal_target_rows(target),
-            base_as_feature=spec["hybrid"]["base_as_feature"],
-        ).fit(train_frames),
+        "hybrid": hybrid_model(physics, spec["hybrid"], seed, target, features).fit(
+            train_frames
+        ),
         "pinn": ThermalPINN(
             target, thermal, interval, features, seed, unseen_turbines="mean"
         ).fit(train_frames),
@@ -276,6 +269,29 @@ def load_part(folder: Path, signal: str) -> list[dict[str, Any]] | None:
     return json.loads(path.read_text()) if path.exists() else None
 
 
+def saved_or_run(
+    folder: Path, signal: str, run: Callable[[], list[dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    """A signal's saved records; if not saved yet, run it and save them."""
+    saved = load_part(folder, signal)
+    if saved is not None:
+        logger.info("%s: loaded from %s", signal, folder)
+        return saved
+    records = run()
+    save_part(folder, signal, records)
+    return records
+
+
+def thermal_target(
+    config: dict[str, Any],
+    target: str,
+    component: str,
+    thermal_data: Callable[[], tuple[Mapping[str, Any], Mapping[str, pd.DataFrame]]],
+) -> list[dict[str, Any]]:
+    """Thermal records of one target; the frames are read on first use."""
+    return thermal_experiment(config, target, component, *thermal_data())
+
+
 def main() -> None:
     """Run both directions for power and every thermal target, skipping
     signals already saved; print and save."""
@@ -285,20 +301,15 @@ def main() -> None:
     g = load_graph(config["paths"]["ontology"])
     models_dir = Path(config["paths"]["models"])
     parts = models_dir / "cross_site"
-    records = load_part(parts, "power")
-    if records is None:
-        records = power_experiment(g, config)
-        save_part(parts, "power", records)
-    thermal_data = None
+    # read the thermal frames only if some target still has to run
+    thermal_data = cache(lambda: load_turbines(g, config))
+    records = saved_or_run(parts, "power", lambda: power_experiment(g, config))
     for target, component in config["thermal"]["targets"].items():
-        saved = load_part(parts, target)
-        if saved is None:
-            thermal_data = thermal_data or load_turbines(g, config)
-            saved = thermal_experiment(config, target, component, *thermal_data)
-            save_part(parts, target, saved)
-        else:
-            logger.info("%s: loaded from %s", target, parts)
-        records = records + saved
+        records += saved_or_run(
+            parts,
+            target,
+            partial(thermal_target, config, target, component, thermal_data),
+        )
     records = pd.DataFrame(records)
     out = models_dir / "cross_site.json"
     out.write_text(json.dumps(json.loads(records.to_json(orient="records")), indent=2))

@@ -129,7 +129,8 @@ flat in `tests/` (`test_<module>.py`).
   point, fitted on free-run error with PyTorch, all turbines batched;
   `simulate` free run with restarts, warm-up and cooler), `baseline.py` (`LightGBMThermalModel`), `pinn.py`
   (`ThermalPINN`, `ode_residual`), `train.py` (orchestration, per-target
-  saving, `--targets`).
+  saving, `--targets`; `variant_specs` and `hybrid_model` shared with
+  the cross-site experiment).
 
 `src/health/` (§7.10):
 
@@ -153,7 +154,7 @@ flat in `tests/` (`test_<module>.py`).
 
 - `cross_site.py` (§7.11): `compare` (in-site vs cross-site RMSE on the
   same rows), `summarise`, `power_experiment`, `thermal_experiment` (one
-  target), `save_part`/`load_part` (per-signal results in
+  target), `saved_or_run` (per-signal results in
   `models/cross_site/`; a rerun skips saved signals). Uses
   `ThermalPhysicsModel(pooled=True)` and
   `ThermalPINN(unseen_turbines="mean")`.

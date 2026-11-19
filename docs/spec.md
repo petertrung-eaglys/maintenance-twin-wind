@@ -829,3 +829,16 @@ and the Kelmarsh repo tag the code was derived from.
   smallest increase on all 14 target × direction pairs (+38 % vs
   +123–157 %), but LightGBM still has the lowest cross-site RMSE in 8 of
   14; the thermal hybrid and PINN do not transfer better than LightGBM.
+
+### Refactor: shared thermal model setup (2026-11-19)
+
+- `variant_specs` and `hybrid_model` in `src/models/thermal/train.py`
+  build the per-target specs and the thermal hybrid for both the in-site
+  training and the cross-site experiment (they were duplicated).
+- `cross_site.saved_or_run` replaces the two copies of "load the saved
+  signal or run and save it"; the thermal frames are still read only if
+  a target has to run. Rerun from saved parts reproduces
+  `models/cross_site.json` byte for byte. No behaviour change.
+- Checked and left alone: power model setup (one-line constructors, no
+  shared logic) and `config.yaml` (one file kept: YAML anchors such as
+  `*threads` do not work across files, and spec §6 defines one file).

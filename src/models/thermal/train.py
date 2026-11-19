@@ -125,6 +125,32 @@ def scored_rows(
     return normal_target_rows(target)(frame) & after & defined
 
 
+def variant_specs(
+    models: dict[str, Any], target: str, component: str
+) -> dict[str, dict[str, Any]]:
+    """The model spec of every thermal variant for one target."""
+    return {v: target_spec(models[f"thermal_{v}"], target, component) for v in VARIANTS}
+
+
+def hybrid_model(
+    physics: ThermalPhysicsModel,
+    spec: dict[str, Any],
+    seed: int,
+    target: str,
+    features: list[str],
+) -> ResidualModel:
+    """The (unfitted) thermal hybrid: physics plus a LightGBM residual fitted
+    on normal rows with the target measured."""
+    return ResidualModel(
+        physics,
+        spec | {"features": features},
+        seed,
+        target,
+        rows=normal_target_rows(target),
+        base_as_feature=spec["base_as_feature"],
+    )
+
+
 def train_target(
     g: Graph,
     config: dict[str, Any],
@@ -140,10 +166,7 @@ def train_target(
     train_end, calibration_end = split_times(config["train_test_split"])
     train = {k: training_period(f, train_end) for k, f in frames.items()}
     features = feature_columns(thermal)
-    specs = {
-        v: target_spec(config["models"][f"thermal_{v}"], target, component)
-        for v in VARIANTS
-    }
+    specs = variant_specs(config["models"], target, component)
     shared_dir = Path(config["paths"]["models"]) / "thermal"
     shared_dir.mkdir(parents=True, exist_ok=True)
     physics = ThermalPhysicsModel(target, thermal, interval, seed).fit(train)
@@ -158,14 +181,9 @@ def train_target(
         turbine = turbines[key]
         baseline = LightGBMThermalModel(specs["baseline"], seed, target, features)
         baseline.fit({key: train[key]})
-        hybrid = ResidualModel(
-            physics,
-            specs["hybrid"] | {"features": features},
-            seed,
-            target,
-            rows=normal_target_rows(target),
-            base_as_feature=specs["hybrid"]["base_as_feature"],
-        ).fit({key: train[key]})
+        hybrid = hybrid_model(physics, specs["hybrid"], seed, target, features).fit(
+            {key: train[key]}
+        )
         outputs = {
             "physics": physics.predict(frame),
             "baseline": baseline.predict(frame),

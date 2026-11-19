@@ -4,13 +4,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.models.residual import BASE_COLUMN
 from src.models.thermal.train import (
+    VARIANTS,
+    hybrid_model,
     parse_targets,
     prepare,
     scored_rows,
     selected_targets,
     thermal_columns,
     training_period,
+    variant_specs,
 )
 
 THERMAL = {"history_inputs": ["power"], "history_windows_min": [20]}
@@ -101,3 +105,27 @@ def test_parse_targets_reads_the_command_line() -> None:
 
 def test_parse_targets_is_none_without_the_option() -> None:
     assert parse_targets([]) is None
+
+
+def test_variant_specs_give_every_variant_the_target_as_qualifier() -> None:
+    models = {f"thermal_{v}": {"variant": v} for v in VARIANTS}
+
+    specs = variant_specs(models, "stator_temp", "generator")
+
+    assert list(specs) == list(VARIANTS)
+    assert specs["pinn"] == {
+        "variant": "pinn",
+        "target": "stator_temp",
+        "component": "generator",
+        "qualifier": "stator_temp",
+    }
+
+
+def test_hybrid_model_fits_normal_target_rows_with_optional_base_feature() -> None:
+    spec = {"lightgbm": {}, "base_as_feature": True}
+    frame = pd.DataFrame({"is_normal": [True, False, True], "t": [1.0, 2.0, None]})
+
+    model = hybrid_model(None, spec, 0, "t", ["power_mean_20min"])
+
+    assert model.features == ["power_mean_20min", BASE_COLUMN]
+    assert model.rows(frame).tolist() == [True, False, False]

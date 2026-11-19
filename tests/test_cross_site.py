@@ -4,7 +4,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.experiments.cross_site import compare, load_part, save_part, summarise
+from src.experiments.cross_site import (
+    compare,
+    load_part,
+    save_part,
+    saved_or_run,
+    summarise,
+)
 
 
 def test_compare_scores_in_site_and_cross_site_on_the_same_rows() -> None:
@@ -61,3 +67,17 @@ def test_saved_part_is_loaded_back_and_missing_part_is_none(tmp_path) -> None:
     assert load_part(tmp_path / "parts", "power") == records
     assert load_part(tmp_path / "parts", "stator_temp") is None
     assert not list((tmp_path / "parts").glob("*.tmp"))
+
+
+def test_saved_or_run_runs_a_signal_once_and_then_loads_it(tmp_path) -> None:
+    calls = []
+
+    def run() -> list[dict]:
+        calls.append(1)
+        return [{"variant": "physics", "n": len(calls)}]
+
+    first = saved_or_run(tmp_path, "power", run)
+    second = saved_or_run(tmp_path, "power", run)
+
+    assert first == second == [{"variant": "physics", "n": 1}]
+    assert len(calls) == 1
