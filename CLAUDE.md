@@ -14,7 +14,7 @@ LightGBM power baseline), §7.8 (physics and hybrid power, pitch, yaw),
 §7.9 (thermal models: physics, baseline, hybrid, PINN), §7.10 (alerts,
 evaluation; then fleet-relative scores, drift alerts, curves), §7.11
 (cross-site experiment), §7.12 (report), §7.13 (stretch: wake-aware
-power).
+power), §7.14 (Streamlit dashboard).
 
 ## Package management: uv only
 
@@ -38,6 +38,7 @@ make evaluate  # alerts vs fault events -> models/evaluation.json (~15 s)
 make curves    # detection vs false alarms, 6 thresholds -> models/curves.json
 make cross-site # train on one farm, test on the other (~30 min, resumes)
 make report    # docs/figures/*.png + report tables printed (~20 s)
+make app       # Streamlit dashboard (app/app.py), http://localhost:8501
 make test      # uv run pytest
 make lint      # uv run ruff check .
 ```
@@ -55,7 +56,8 @@ survive a session disconnect, and keep `compute.threads` and `nice`.
 `src/` is grouped by concern: `data/` (raw files → clean Parquet),
 `graph/` (the RDF graph), `models/` (normal-behaviour models), `health/`
 (alerts and their evaluation), `experiments/` (studies that register
-nothing in the graph), `report/` (figures and tables of docs/report.md). Tests stay
+nothing in the graph), `report/` (figures and tables of docs/report.md),
+`dashboard/` (logic of app/app.py). Tests stay
 flat in `tests/` (`test_<module>.py`).
 
 - `src/storage.py`: `write_parquet` (atomic: temp file, fsync, rename).
@@ -179,6 +181,18 @@ flat in `tests/` (`test_<module>.py`).
 - `docs/report.md` is hand-written around the generated figures and
   tables; update its numbers when results change.
 
+`src/dashboard/` (§7.14; `app/app.py` renders only; settings in
+`config.yaml` `dashboard`):
+
+- `replay.py` (`row_at`, `value_of`, `active_alerts`, `farm_statuses`,
+  `window`, `advance`, `replay_start`, `period_of`), `health.py`
+  (`health_table`, `farm_health`: score at the replay time / alert
+  threshold), `data.py` (`read_columns` only the needed columns,
+  `farm_normal`, `component_scores` fleet-relative, hourly), `tables.py`
+  (per-farm metrics, evaluation, drift, wake), `ontology_view.py`
+  (Graphviz DOT, `for_components` filter).
+- Keep the app's memory bounded: never read whole turbine files.
+
 ## Rules (spec §8)
 
 - Run `inspect_data.py` before writing the loader; never guess column names.
@@ -217,7 +231,10 @@ flat in `tests/` (`test_<module>.py`).
   `yaw_misalignment` is the vane's relative wind angle.
 - SPARQL UNION branches are evaluated bottom-up: a branch cannot use a
   variable bound outside it (`BIND(?outer AS ?s)` matches everything).
-  Repeat the turbine pattern inside each branch (see `LINEAGE_QUERY`).
+  Repeat the turbine pattern inside each branch. Even then UNION queries
+  are slow on the full graph: `get_lineage` runs one query per subject
+  kind, then a VALUES query with the turbine IRI inlined (138 s → 0.2 s).
+  Joining a bound pattern with a large VALUES list is slow too.
 - `ontology/wind_twin.ttl` is committed; tests use the synthetic graph in
   `tests/conftest.py`, never the real file. It changes on every
   `make train` (new `prov:generatedAtTime`); commit it when its structure

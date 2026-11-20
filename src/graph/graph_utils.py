@@ -142,27 +142,38 @@ WHERE {
 ORDER BY ?farm_code ?turbine_id ?start ?alert
 """
 
-# SPARQL evaluates UNION branches bottom-up, so each branch repeats the
-# turbine pattern (?t) instead of referring to the outer ?turbine.
-_T = "?f kt:farmCode ?farm_code ; kt:hasTurbine ?t . ?t kt:turbineId ?turbine_id ."
-LINEAGE_QUERY = f"""
+# A turbine's lineage: the subjects it traces to, one query per kind
+# (with farm_code and turbine_id bound), then their triples. A single
+# query with UNION branches gave the same rows, but SPARQL evaluates UNION
+# branches bottom-up, without the bindings, so on the full graph (models,
+# alerts) it took over two minutes per turbine.
+_TURBINE = (
+    "?f kt:farmCode ?farm_code ; kt:hasTurbine ?t . ?t kt:turbineId ?turbine_id ."
+)
+LINEAGE_SUBJECT_QUERIES = {
+    kind: f"SELECT DISTINCT ?s WHERE {{ {body} }}"
+    for kind, body in {
+        "farm": "?s kt:farmCode ?farm_code ; kt:hasTurbine/kt:turbineId ?turbine_id",
+        "turbine": f"{_TURBINE} BIND (?t AS ?s)",
+        "components": f"{_TURBINE} ?t kt:hasComponent ?s",
+        "sensors": f"{_TURBINE} ?t kt:hasSensor ?s",
+        "models": f"{_TURBINE} ?t kt:hasComponent ?c . ?s kt:modelOf ?c",
+        "turbine sources": f"{_TURBINE} ?t prov:wasDerivedFrom/kt:partOf* ?s",
+        "sensor sources": (
+            f"{_TURBINE} ?t kt:hasSensor/prov:wasDerivedFrom/kt:partOf* ?s"
+        ),
+    }.items()
+}
+# {subjects}: the subjects found above, as IRIs for VALUES; {turbine}: the
+# turbine's IRI. The farm's links to its other turbines are dropped. (A
+# turbine pattern joined with VALUES took ~17 s; the IRI keeps it < 0.1 s.)
+LINEAGE_TRIPLES_QUERY = """
 SELECT DISTINCT ?s ?p ?o (isIRI(?o) AS ?o_is_iri)
 WHERE {{
-  ?farm kt:farmCode ?farm_code ;
-        kt:hasTurbine ?turbine .
-  ?turbine kt:turbineId ?turbine_id .
-  {{
-    {{ ?s kt:farmCode ?farm_code ; kt:hasTurbine/kt:turbineId ?turbine_id }}
-    UNION {{ {_T} BIND (?t AS ?s) }}
-    UNION {{ {_T} ?t kt:hasComponent ?s }}
-    UNION {{ {_T} ?t kt:hasSensor ?s }}
-    UNION {{ {_T} ?t kt:hasComponent ?c . ?s kt:modelOf ?c }}
-    UNION {{ {_T} ?t prov:wasDerivedFrom/kt:partOf* ?s }}
-    UNION {{ {_T} ?t kt:hasSensor/prov:wasDerivedFrom/kt:partOf* ?s }}
-  }}
+  VALUES ?s {{ {subjects} }}
   ?s ?p ?o .
   FILTER (?p != rdfs:comment)
-  FILTER NOT EXISTS {{ ?o a kt:Turbine . FILTER (?o != ?turbine) }}
+  FILTER (?p != kt:hasTurbine || ?o = {turbine})
 }}
 """
 
@@ -384,8 +395,23 @@ def get_fault_events(
 
 
 def get_lineage(g: Graph, farm_code: str, turbine_id: str) -> pd.DataFrame:
-    """Triples (s, p, o, o_is_iri) of a turbine and everything it traces to."""
-    return query(g, LINEAGE_QUERY, farm_code=farm_code, turbine_id=turbine_id)
+    """Triples (s, p, o, o_is_iri) of a turbine and everything it traces to:
+    farm, turbine, components, sensors, models and source files."""
+    bound = {"farm_code": farm_code, "turbine_id": turbine_id}
+    subjects = sorted(
+        {
+            iri
+            for sparql in LINEAGE_SUBJECT_QUERIES.values()
+            for iri in query(g, sparql, **bound)["s"]
+        }
+    )
+    if not subjects:
+        return pd.DataFrame(columns=["s", "p", "o", "o_is_iri"])
+    values = " ".join(f"<{iri}>" for iri in subjects)
+    sparql = LINEAGE_TRIPLES_QUERY.format(
+        subjects=values, turbine=f"<{turbine_iri(farm_code, turbine_id)}>"
+    )
+    return query(g, sparql)
 
 
 def get_schema(g: Graph) -> tuple[pd.DataFrame, pd.DataFrame]:

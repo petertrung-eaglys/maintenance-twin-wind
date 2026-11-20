@@ -560,3 +560,33 @@ report:
   # Wake figure: a row counts as waked when the wake variant expects less
   # than this share of the free-stream power (§7.13)
   wake_power_ratio: 0.95
+dashboard:
+  # §7.14 Streamlit app (app/app.py; logic in src/dashboard/)
+  # plotly map style: "satellite" = Esri World Imagery (no token needed);
+  # alternatives: "satellite-streets", "carto-positron", "open-street-map"
+  map_style: satellite
+  map_zoom: 13.5
+  # Random sample of normal rows drawn in the power curve (all years
+  # together are ~400k points per turbine, too many to resend every tick)
+  power_curve_max_points: 50000
+  chart_days: 7                  # replay charts show the last N days
+  tick_seconds: 0.5              # replay refresh while playing
+  speeds:                        # 10-minute samples advanced per tick
+    "10 min": 1
+    "1 h": 6
+    "4 h": 24
+    "1 day": 144
+    "1 week": 1008
+  # Health index = problem score at the replay time / alert threshold
+  # (score and threshold as in make alerts); >= 1 is an alert
+  health_watch_ratio: 0.8        # "watch" from this share of the threshold
+  health_resample: 1h            # stored score resolution (memory)
+  # Status palette (reference data-viz status colours)
+  status_colors:
+    normal: "#0ca30c"
+    not operating normally: "#fab219"
+    alert: "#d03b3b"
+  health_colors:
+    ok: "#0ca30c"
+    watch: "#fab219"
+    alert: "#d03b3b"

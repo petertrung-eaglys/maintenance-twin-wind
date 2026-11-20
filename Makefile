@@ -1,4 +1,4 @@
-.PHONY: setup download inspect data ontology train wake alerts evaluate curves cross-site report test lint
+.PHONY: setup download inspect data ontology train wake alerts evaluate curves cross-site report app test lint
 
 setup:
 	uv sync
@@ -48,6 +48,9 @@ cross-site:
 
 report:
 	$(NICE) uv run python -m src.report.build
+
+app:
+	uv run streamlit run app/app.py
 
 test:
 	uv run pytest

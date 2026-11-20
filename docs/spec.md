@@ -873,3 +873,22 @@ and the Kelmarsh repo tag the code was derived from.
   nacelle model already raises few waked alerts (anemometer reads low in
   wakes). Free-stream variants cost accuracy (nRMSE 7–9 % vs 3.5–3.8 %).
   Report §6 and figure `wake_alerts.png`; `report.wake_power_ratio`.
+
+### Milestone 7.14: Streamlit dashboard (2026-11-20)
+
+- `app/app.py` (`make app`) renders only; logic in `src/dashboard/`
+  (`replay`, `health`, `data`, `tables`, `ontology_view`, adapted from the
+  Kelmarsh repo). Tabs: Replay (farm selector, status map, play clock,
+  power and temperature vs every variant, power curve, active alerts),
+  Component health (health index = score at replay time / alert
+  threshold per turbine and model, score history with alerts and fault
+  events), Model comparison (metrics, evaluation, drift, cross-site,
+  wakes), Ontology & lineage (component-filtered lineage, schema, every
+  SPARQL query). Footer credits both datasets from the graph.
+- streamlit and plotly added (approved in §5); settings in
+  `config.yaml` `dashboard`.
+- `get_lineage` rewritten as per-kind subject queries plus one triples
+  query (the UNION query took 138 s per turbine on the full graph; now
+  0.2 s, same triples, existing tests unchanged).
+- Checked headless with `AppTest` on the real outputs: both farms, no
+  exceptions, ~10 s first load per farm.

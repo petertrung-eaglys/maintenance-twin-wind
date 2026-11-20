@@ -147,6 +147,35 @@ table `models/<farm>/wake_ratios.json` and `models/wake.json` (fitted k,
 waked/free bias per turbine), and registers the models in the graph. Rerun
 `make alerts evaluate curves report` afterwards.
 
+```bash
+make app          # Streamlit dashboard at http://localhost:8501
+```
+
+The dashboard (`app/app.py`, logic in `src/dashboard/`) reads the graph,
+the turbine Parquet files and `models/*.json`, so run it after the
+pipeline. Sidebar: farm, turbine, component and temperature, replay speed,
+play/pause, date and time of day (it starts at the test period). Tabs:
+
+- **Replay:** map of the farm coloured by status at the replay time
+  (normal, not operating normally, alert), the turbine's power, wind and
+  temperature, the last 7 days of power and of the chosen temperature
+  against each model variant (alerts shaded), its power curve and the
+  alerts active at the replay time.
+- **Component health:** health index (problem score / alert threshold,
+  ≥ 1 = alert, ≥ 0.8 = watch) per turbine for the chosen component, the
+  turbine's models ranked, and one model's score over time with its
+  threshold, alerts and the component's fault events.
+- **Model comparison:** test error per turbine and variant, event-timed
+  detection per scope, drift alerts, cross-site results and the wake bias.
+- **Ontology & lineage:** the turbine's lineage graph filtered by component
+  (models with an active alert in red), its sensors, the schema and every
+  SPARQL query used.
+
+The footer credits both datasets (from the graph). First load takes about
+10 s per farm; a component's health scores are computed on first view
+(5–30 s, then cached; peak memory about 5 GB for the Penmanshiel
+generator). Only the columns a view needs are read.
+
 Every pipeline script runs standalone with
 `uv run python -m src.<package>.<name>` and has a Makefile target (added
 per milestone). `src/` is grouped by concern: `data/` (raw files to clean
@@ -1002,6 +1031,20 @@ make lint         # uv run ruff check .
     so its numbers are a snapshot of the 2026-11-19 run.
   - Colours, case studies and figure settings live in `config.yaml`
     (`report`).
+- Dashboard (§7.14):
+  - Logic is a package, `src/dashboard/` (`replay`, `health`, `data`,
+    `tables`, `ontology_view`), instead of `src/dashboard.py` and
+    `src/ontology_view.py`; adapted from the Kelmarsh repo's modules.
+  - The health index uses the fleet-relative 24 h score and the threshold
+    of `make alerts`, evaluated at the replay time (not only the latest
+    value), so the replay shows how health evolved.
+  - No pytest smoke test of the app on real data (tests use synthetic data
+    only); the app was checked headless with Streamlit's `AppTest` on the
+    real outputs (both farms, no exceptions). DuckDB is not used: pandas
+    reads only the needed Parquet columns.
+  - `get_lineage` now runs one SPARQL query per kind of subject, then one
+    for their triples: the single UNION query took 138 s per turbine on the
+    full graph (0.2 s now, same triples).
 - Wake-aware power (§7.13), decided with the user:
   - The spec multiplies a wake loss into the physics power model, but that
     model uses each turbine's own nacelle wind speed, which the wake has
